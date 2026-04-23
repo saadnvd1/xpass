@@ -1,6 +1,7 @@
 package importer
 
 import (
+	"archive/zip"
 	"encoding/csv"
 	"encoding/json"
 	"fmt"
@@ -31,6 +32,8 @@ func Import(path string) (*ImportResult, error) {
 		return ImportCSV(path)
 	case ".json":
 		return ImportJSON(path)
+	case ".1pux":
+		return Import1PUX(path)
 	default:
 		// Try to detect by content
 		data, err := os.ReadFile(path)
@@ -103,6 +106,307 @@ func importCSVData(data []byte) (*ImportResult, error) {
 	}
 
 	return result, nil
+}
+
+// Import1PUX imports from 1Password .1pux file (ZIP containing export.data JSON)
+func Import1PUX(path string) (*ImportResult, error) {
+	r, err := zip.OpenReader(path)
+	if err != nil {
+		return nil, fmt.Errorf("opening 1pux file: %w", err)
+	}
+	defer r.Close()
+
+	// Find export.data inside the ZIP
+	for _, f := range r.File {
+		if f.Name == "export.data" {
+			rc, err := f.Open()
+			if err != nil {
+				return nil, fmt.Errorf("reading export.data: %w", err)
+			}
+			defer rc.Close()
+
+			data, err := io.ReadAll(rc)
+			if err != nil {
+				return nil, fmt.Errorf("reading export.data: %w", err)
+			}
+
+			return import1PUXData(data)
+		}
+	}
+
+	return nil, fmt.Errorf("invalid 1pux file: missing export.data")
+}
+
+// 1PUX-specific structures (different from standard JSON export)
+type puxExport struct {
+	Accounts []puxAccount `json:"accounts"`
+}
+
+type puxAccount struct {
+	Attrs  puxAttrs   `json:"attrs"`
+	Vaults []puxVault `json:"vaults"`
+}
+
+type puxAttrs struct {
+	AccountName string `json:"accountName"`
+	Email       string `json:"email"`
+}
+
+type puxVault struct {
+	Attrs puxVaultAttrs `json:"attrs"`
+	Items []puxItem     `json:"items"`
+}
+
+type puxVaultAttrs struct {
+	Name string `json:"name"`
+}
+
+type puxItem struct {
+	UUID         string       `json:"uuid"`
+	FavIndex     int          `json:"favIndex"`
+	CreatedAt    int64        `json:"createdAt"`
+	UpdatedAt    int64        `json:"updatedAt"`
+	CategoryUUID string       `json:"categoryUuid"`
+	Overview     puxOverview  `json:"overview"`
+	Details      puxDetails   `json:"details"`
+}
+
+type puxOverview struct {
+	Title string   `json:"title"`
+	URLs  []puxURL `json:"urls"`
+	URL   string   `json:"url"`
+	Tags  []string `json:"tags"`
+}
+
+type puxURL struct {
+	URL string `json:"url"`
+}
+
+type puxDetails struct {
+	LoginFields []puxLoginField `json:"loginFields"`
+	NotesPlain  string          `json:"notesPlain"`
+	Sections    []puxSection    `json:"sections"`
+}
+
+type puxLoginField struct {
+	Designation string `json:"designation"`
+	Value       string `json:"value"`
+	Name        string `json:"name"`
+	Type        string `json:"type"`
+}
+
+type puxSection struct {
+	Title  string         `json:"title"`
+	Fields []puxSectField `json:"fields"`
+}
+
+type puxSectField struct {
+	Title string      `json:"title"`
+	Value interface{} `json:"value"`
+	Type  string      `json:"type"`
+}
+
+func import1PUXData(data []byte) (*ImportResult, error) {
+	var export puxExport
+	if err := json.Unmarshal(data, &export); err != nil {
+		return nil, fmt.Errorf("parsing export.data: %w", err)
+	}
+
+	// Collect all items from all accounts/vaults
+	var allItems []puxItem
+	for _, account := range export.Accounts {
+		for _, v := range account.Vaults {
+			allItems = append(allItems, v.Items...)
+		}
+	}
+
+	result := &ImportResult{Total: len(allItems)}
+
+	for i, item := range allItems {
+		entry, err := parsePUXItem(item)
+		if err != nil {
+			result.Errors = append(result.Errors, fmt.Sprintf("item %d: %v", i+1, err))
+			result.Skipped++
+			continue
+		}
+		if entry == nil {
+			result.Skipped++
+			continue
+		}
+
+		result.Entries = append(result.Entries, *entry)
+		result.Imported++
+	}
+
+	return result, nil
+}
+
+func parsePUXItem(item puxItem) (*vault.Entry, error) {
+	createdAt := time.Now().UTC().Format(time.RFC3339)
+	updatedAt := createdAt
+	if item.CreatedAt > 0 {
+		createdAt = time.Unix(item.CreatedAt, 0).UTC().Format(time.RFC3339)
+	}
+	if item.UpdatedAt > 0 {
+		updatedAt = time.Unix(item.UpdatedAt, 0).UTC().Format(time.RFC3339)
+	}
+
+	tags := item.Overview.Tags
+	if tags == nil {
+		tags = []string{}
+	}
+	tags = append(tags, "1password-import")
+
+	entry := &vault.Entry{
+		Name:      item.Overview.Title,
+		Tags:      tags,
+		Favorite:  item.FavIndex > 0,
+		CreatedAt: createdAt,
+		UpdatedAt: updatedAt,
+		Version:   1,
+		Notes:     item.Details.NotesPlain,
+	}
+
+	if entry.Name == "" {
+		entry.Name = "Untitled"
+	}
+
+	// Category UUIDs: 001=Login, 002=CreditCard, 003=SecureNote, 004=Identity, 005=Password, 006=Document
+	switch item.CategoryUUID {
+	case "001", "005", "": // Login or Password
+		entry.Type = vault.TypeLogin
+
+		// URL
+		if len(item.Overview.URLs) > 0 {
+			entry.URL = item.Overview.URLs[0].URL
+		} else if item.Overview.URL != "" {
+			entry.URL = item.Overview.URL
+		}
+
+		// Login fields
+		for _, f := range item.Details.LoginFields {
+			switch strings.ToLower(f.Designation) {
+			case "username":
+				entry.Username = f.Value
+			case "password":
+				entry.Password = f.Value
+			}
+		}
+
+		// Check sections for OTP and other fields
+		for _, s := range item.Details.Sections {
+			for _, f := range s.Fields {
+				title := strings.ToLower(f.Title)
+				val := puxFieldValue(f)
+
+				if strings.Contains(title, "one-time") || strings.Contains(title, "otp") || strings.Contains(title, "2fa") {
+					if strings.HasPrefix(val, "otpauth://") {
+						entry.TOTP = parseTOTPUri(val)
+					} else if val != "" {
+						entry.TOTP = &vault.TOTP{Secret: val, Algorithm: "SHA1", Digits: 6, Period: 30}
+					}
+				} else if strings.Contains(title, "email") {
+					entry.Email = val
+				}
+			}
+		}
+
+		// Also check if TOTP is embedded in value as map with "totp" key
+		for _, s := range item.Details.Sections {
+			for _, f := range s.Fields {
+				if m, ok := f.Value.(map[string]interface{}); ok {
+					if totp, ok := m["totp"]; ok {
+						secret := fmt.Sprintf("%v", totp)
+						if secret != "" && entry.TOTP == nil {
+							entry.TOTP = &vault.TOTP{Secret: secret, Algorithm: "SHA1", Digits: 6, Period: 30}
+						}
+					}
+				}
+			}
+		}
+
+	case "002": // Credit Card
+		entry.Type = vault.TypeCreditCard
+		for _, s := range item.Details.Sections {
+			for _, f := range s.Fields {
+				title := strings.ToLower(f.Title)
+				val := puxFieldValue(f)
+
+				if strings.Contains(title, "cardholder") {
+					entry.CardholderName = val
+				} else if strings.Contains(title, "number") || title == "card number" {
+					entry.CardNumber = val
+				} else if strings.Contains(title, "cvv") || strings.Contains(title, "verification") {
+					entry.CVV = val
+				} else if strings.Contains(title, "pin") {
+					entry.PIN = val
+				} else if strings.Contains(title, "expir") {
+					// Try monthYear format
+					if m, ok := f.Value.(map[string]interface{}); ok {
+						if my, ok := m["monthYear"]; ok {
+							parts := strings.Split(fmt.Sprintf("%v", my), "/")
+							if len(parts) == 2 {
+								entry.ExpiryMonth = parts[0]
+								entry.ExpiryYear = parts[1]
+							}
+						}
+					}
+				}
+			}
+		}
+
+	case "003": // Secure Note
+		entry.Type = vault.TypeSecureNote
+		entry.Content = item.Details.NotesPlain
+
+	case "004": // Identity
+		entry.Type = vault.TypeIdentity
+		for _, s := range item.Details.Sections {
+			for _, f := range s.Fields {
+				title := strings.ToLower(f.Title)
+				val := puxFieldValue(f)
+
+				if strings.Contains(title, "first") {
+					entry.Username = val
+				} else if strings.Contains(title, "email") {
+					entry.Email = val
+				}
+			}
+		}
+
+	case "006": // Document — store as secure note
+		entry.Type = vault.TypeSecureNote
+		entry.Content = item.Details.NotesPlain
+		if entry.Content == "" && entry.Name == "Untitled" {
+			return nil, nil
+		}
+
+	default:
+		// Unknown — try secure note
+		if item.Details.NotesPlain != "" || entry.Name != "Untitled" {
+			entry.Type = vault.TypeSecureNote
+			entry.Content = item.Details.NotesPlain
+		} else {
+			return nil, nil
+		}
+	}
+
+	return entry, nil
+}
+
+func puxFieldValue(f puxSectField) string {
+	switch v := f.Value.(type) {
+	case string:
+		return v
+	case map[string]interface{}:
+		if concealed, ok := v["concealed"]; ok {
+			return fmt.Sprintf("%v", concealed)
+		}
+		if totp, ok := v["totp"]; ok {
+			return fmt.Sprintf("%v", totp)
+		}
+	}
+	return fmt.Sprintf("%v", f.Value)
 }
 
 func getField(headerMap map[string]int, record []string, names ...string) string {
