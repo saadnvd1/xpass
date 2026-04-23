@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #0f0f11;
+    font-family: "SF Mono", "Menlo", "Monaco", "Consolas", monospace;
+    font-size: 13.5px;
+    line-height: 1.6;
+    width: 1280px;
+    height: 720px;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .window {
+    background: #111827;
+    border-radius: 12px;
+    overflow: hidden;
+    width: 1100px;
+    height: 640px;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 25px 60px rgba(0,0,0,0.6), 0 0 0 1px rgba(124,58,237,0.15);
+  }
+  .titlebar {
+    background: #1F2937;
+    height: 40px;
+    display: flex;
+    align-items: center;
+    padding: 0 16px;
+    gap: 8px;
+    flex-shrink: 0;
+  }
+  .dot { width: 12px; height: 12px; border-radius: 50%; }
+  .dot-red { background: #EF4444; }
+  .dot-yellow { background: #F59E0B; }
+  .dot-green { background: #10B981; }
+  .titlebar-text { color: #6B7280; font-size: 12px; margin-left: 8px; }
+  .content { padding: 20px 24px; overflow: hidden; flex: 1; display: flex; flex-direction: column; }
+
+  /* xpass colors from styles.go */
+  .primary { color: #7C3AED; }
+  .secondary { color: #6366F1; }
+  .success { color: #10B981; }
+  .danger { color: #EF4444; }
+  .warning { color: #F59E0B; }
+  .muted { color: #6B7280; }
+  .text { color: #E5E7EB; }
+  .bold { font-weight: bold; }
+
+  /* Header */
+  .header {
+    margin-bottom: 12px;
+  }
+  .header-title {
+    color: #7C3AED;
+    font-weight: bold;
+    font-size: 15px;
+  }
+  .header-count {
+    color: #6B7280;
+    font-size: 13px;
+  }
+
+  /* Search */
+  .search {
+    margin-bottom: 14px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .search-slash {
+    color: #7C3AED;
+    font-weight: bold;
+  }
+  .search-input {
+    color: #E5E7EB;
+  }
+  .search-cursor {
+    background: #7C3AED;
+    color: #111827;
+    padding: 0 1px;
+    animation: blink 1s step-end infinite;
+  }
+
+  /* Entry list */
+  .entries {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .entry {
+    display: flex;
+    align-items: baseline;
+    padding: 2px 0;
+    gap: 8px;
+  }
+  .entry-cursor {
+    width: 18px;
+    flex-shrink: 0;
+  }
+  .entry-type {
+    color: #6B7280;
+    flex-shrink: 0;
+    font-size: 12px;
+  }
+  .entry-name {
+    color: #E5E7EB;
+  }
+  .entry-star {
+    color: #F59E0B;
+  }
+  .entry-subtitle {
+    color: #6B7280;
+    margin-left: 4px;
+  }
+
+  /* Selected entry */
+  .entry.selected .entry-name {
+    color: #7C3AED;
+    font-weight: bold;
+  }
+  .entry.selected .entry-subtitle {
+    color: #6366F1;
+  }
+  .entry.selected .entry-cursor {
+    color: #7C3AED;
+    font-weight: bold;
+  }
+
+  /* Status */
+  .status {
+    color: #10B981;
+    margin-top: 12px;
+    font-size: 13px;
+  }
+
+  /* Help bar */
+  .helpbar {
+    margin-top: auto;
+    padding-top: 16px;
+    display: flex;
+    gap: 14px;
+    flex-wrap: wrap;
+  }
+  .help-item {
+    display: flex;
+    gap: 4px;
+  }
+  .help-key {
+    color: #7C3AED;
+    font-weight: bold;
+    font-size: 12px;
+  }
+  .help-desc {
+    color: #6B7280;
+    font-size: 12px;
+  }
+</style>
+</head>
+<body>
+<div class="window">
+  <div class="titlebar">
+    <div class="dot dot-red"></div>
+    <div class="dot dot-yellow"></div>
+    <div class="dot dot-green"></div>
+    <span class="titlebar-text">xpass</span>
+  </div>
+  <div class="content">
+    <div class="header">
+      <span class="header-title">xpass</span>
+      <span class="header-count">  5/118 matching "git"</span>
+    </div>
+
+    <div class="search">
+      <span class="search-slash">/</span>
+      <span class="search-input">git</span><span class="search-cursor"> </span>
+    </div>
+
+    <div class="entries">
+      <div class="entry selected">
+        <span class="entry-cursor">></span>
+        <span class="entry-type">[L]</span>
+        <span class="entry-name">GitHub</span>
+        <span class="entry-star">*</span>
+        <span class="entry-subtitle">saadnvd1</span>
+      </div>
+      <div class="entry">
+        <span class="entry-cursor"></span>
+        <span class="entry-type">[L]</span>
+        <span class="entry-name">GitHub Work</span>
+        <span class="entry-subtitle">saad@lumifyhub.io</span>
+      </div>
+      <div class="entry">
+        <span class="entry-cursor"></span>
+        <span class="entry-type">[A]</span>
+        <span class="entry-name">GitHub API Token</span>
+        <span class="entry-subtitle">api.github.com</span>
+      </div>
+      <div class="entry">
+        <span class="entry-cursor"></span>
+        <span class="entry-type">[L]</span>
+        <span class="entry-name">GitLab</span>
+        <span class="entry-subtitle">saadnvd1</span>
+      </div>
+      <div class="entry">
+        <span class="entry-cursor"></span>
+        <span class="entry-type">[A]</span>
+        <span class="entry-name">DigitalOcean</span>
+        <span class="entry-subtitle">api.digitalocean.com</span>
+      </div>
+    </div>
+
+    <div class="status">Copied password to clipboard (clears in 30s)</div>
+
+    <div class="helpbar">
+      <div class="help-item"><span class="help-key">j/k</span> <span class="help-desc">navigate</span></div>
+      <div class="help-item"><span class="help-key">enter</span> <span class="help-desc">view</span></div>
+      <div class="help-item"><span class="help-key">a</span> <span class="help-desc">add</span></div>
+      <div class="help-item"><span class="help-key">/</span> <span class="help-desc">search</span></div>
+      <div class="help-item"><span class="help-key">c</span> <span class="help-desc">copy pw</span></div>
+      <div class="help-item"><span class="help-key">p</span> <span class="help-desc">generate</span></div>
+      <div class="help-item"><span class="help-key">d</span> <span class="help-desc">delete</span></div>
+      <div class="help-item"><span class="help-key">q</span> <span class="help-desc">lock</span></div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

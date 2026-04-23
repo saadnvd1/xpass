@@ -3,7 +3,7 @@
 > Terminal password manager that replaces 1Password with a single binary
 
 <p align="center">
-	<img src="media/screenshot.gif" width="600">
+	<img src="media/screenshot.png" width="600">
 </p>
 
 ## Features
