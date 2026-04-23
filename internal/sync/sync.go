@@ -99,8 +99,11 @@ func (s *Sync) Push() error {
 	// Commit any pending changes
 	s.AutoCommit()
 
+	// Get current branch
+	branch := s.currentBranch()
+
 	// Push
-	if err := s.git("push", "-u", "origin", "HEAD"); err != nil {
+	if err := s.git("push", "-u", "origin", branch); err != nil {
 		return fmt.Errorf("push failed: %w", err)
 	}
 
@@ -121,8 +124,11 @@ func (s *Sync) Pull() error {
 	// Commit any pending changes first
 	s.AutoCommit()
 
+	// Get current branch
+	branch := s.currentBranch()
+
 	// Pull with rebase
-	if err := s.git("pull", "--rebase", "origin", "HEAD"); err != nil {
+	if err := s.git("pull", "--rebase", "origin", branch); err != nil {
 		return fmt.Errorf("pull failed: %w", err)
 	}
 
@@ -170,6 +176,18 @@ func (s *Sync) Status() string {
 	}
 
 	return fmt.Sprintf("%s | %s", remote, status)
+}
+
+func (s *Sync) currentBranch() string {
+	out, err := s.gitOutput("rev-parse", "--abbrev-ref", "HEAD")
+	if err != nil {
+		return "main"
+	}
+	b := strings.TrimSpace(out)
+	if b == "" {
+		return "main"
+	}
+	return b
 }
 
 func (s *Sync) isGitRepo() bool {
