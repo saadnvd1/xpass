@@ -3,13 +3,30 @@ package tui
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/saadnvd1/xpass/internal/otp"
 	"github.com/saadnvd1/xpass/internal/vault"
 )
 
+type totpTickMsg struct{}
+
+func totpTick() tea.Cmd {
+	return tea.Tick(time.Second, func(time.Time) tea.Msg {
+		return totpTickMsg{}
+	})
+}
+
 func (m Model) updateDetail(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case totpTickMsg:
+		// Keep ticking while viewing an entry with TOTP
+		if m.view == viewDetail && m.selected != nil && m.selected.TOTP != nil {
+			return m, totpTick()
+		}
+		return m, nil
+
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "esc", "q", "h", "left":
@@ -33,6 +50,19 @@ func (m Model) updateDetail(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if pw != "" {
 					return m, m.copyToClipboard(pw, "secret")
 				}
+			}
+			return m, nil
+
+		case "t":
+			// Copy current TOTP code
+			if m.selected != nil && m.selected.TOTP != nil {
+				code, _, _ := otp.Generate(
+					m.selected.TOTP.Secret,
+					m.selected.TOTP.Algorithm,
+					m.selected.TOTP.Digits,
+					m.selected.TOTP.Period,
+				)
+				return m, m.copyToClipboard(code, "TOTP code")
 			}
 			return m, nil
 
@@ -99,7 +129,15 @@ func (m Model) viewDetail() string {
 			b.WriteString(field("URL", e.URL, false))
 		}
 		if e.TOTP != nil {
-			b.WriteString(field("TOTP", e.TOTP.Secret, !m.showSecret))
+			code, remaining, period := otp.Generate(
+				e.TOTP.Secret, e.TOTP.Algorithm, e.TOTP.Digits, e.TOTP.Period,
+			)
+			timeBar := otp.TimeBar(remaining, period)
+			totpDisplay := code + "  " + mutedStyle.Render(timeBar)
+			b.WriteString(labelStyle.Render("TOTP") + totpDisplay + "\n")
+			if m.showSecret {
+				b.WriteString(labelStyle.Render("TOTP Secret") + secretStyle.Render(e.TOTP.Secret) + "\n")
+			}
 		}
 
 	case vault.TypeSecureNote:
@@ -178,15 +216,16 @@ func (m Model) viewDetail() string {
 
 	// Help
 	b.WriteString("\n\n")
-	b.WriteString(helpBar(
+	helpItems := []string{
 		"s", "show/hide",
 		"c", "copy secret",
 		"u", "copy user",
-		"e", "edit",
-		"d", "delete",
-		"f", "fav",
-		"esc", "back",
-	))
+	}
+	if e.TOTP != nil {
+		helpItems = append(helpItems, "t", "copy TOTP")
+	}
+	helpItems = append(helpItems, "e", "edit", "d", "delete", "f", "fav", "esc", "back")
+	b.WriteString(helpBar(helpItems...))
 
 	return b.String()
 }

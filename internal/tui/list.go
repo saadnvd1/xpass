@@ -59,6 +59,10 @@ func (m Model) updateList(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.detailScroll = 0
 				m.view = viewDetail
 				m.vault.TrackAccess(entry.ID)
+				// Start TOTP ticker if entry has TOTP
+				if entry.TOTP != nil {
+					return m, totpTick()
+				}
 			}
 			return m, nil
 
