@@ -9,6 +9,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/saadnvd1/xpass/internal/clipboard"
 	"github.com/saadnvd1/xpass/internal/crypto"
+	"github.com/saadnvd1/xpass/internal/importer"
 	"github.com/saadnvd1/xpass/internal/tui"
 	"github.com/saadnvd1/xpass/internal/vault"
 )
@@ -32,6 +33,8 @@ func main() {
 		cmdAdd(v)
 	case "list", "ls":
 		cmdList(v)
+	case "import":
+		cmdImport(v)
 	case "generate", "gen":
 		cmdGenerate()
 	case "version":
@@ -174,6 +177,76 @@ func cmdList(v *vault.Vault) {
 	}
 }
 
+func cmdImport(v *vault.Vault) {
+	if len(os.Args) < 3 {
+		fmt.Fprintln(os.Stderr, "Usage: xpass import <file.csv|file.json>")
+		fmt.Fprintln(os.Stderr, "\nSupported formats:")
+		fmt.Fprintln(os.Stderr, "  - 1Password CSV export")
+		fmt.Fprintln(os.Stderr, "  - 1Password JSON export")
+		fmt.Fprintln(os.Stderr, "\nTo export from 1Password:")
+		fmt.Fprintln(os.Stderr, "  1. Open 1Password desktop app")
+		fmt.Fprintln(os.Stderr, "  2. File > Export > select vault")
+		fmt.Fprintln(os.Stderr, "  3. Choose CSV or JSON format")
+		os.Exit(1)
+	}
+
+	filePath := os.Args[2]
+
+	// Check file exists
+	if _, err := os.Stat(filePath); os.IsNotExist(err) {
+		fmt.Fprintln(os.Stderr, "File not found:", filePath)
+		os.Exit(1)
+	}
+
+	// Parse the export file first (before unlocking, so user knows if file is valid)
+	result, err := importer.Import(filePath)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "Error parsing file:", err)
+		os.Exit(1)
+	}
+
+	fmt.Printf("Found %d entries (%d parseable, %d skipped)\n", result.Total, result.Imported, result.Skipped)
+	if len(result.Errors) > 0 {
+		fmt.Println("\nWarnings:")
+		for _, e := range result.Errors {
+			fmt.Println("  -", e)
+		}
+	}
+
+	if result.Imported == 0 {
+		fmt.Println("Nothing to import.")
+		return
+	}
+
+	fmt.Printf("\nImport %d entries? [y/N] ", result.Imported)
+	var confirm string
+	fmt.Scanln(&confirm)
+	if strings.ToLower(confirm) != "y" {
+		fmt.Println("Cancelled.")
+		return
+	}
+
+	// Now unlock
+	requireUnlock(v)
+
+	// Import entries
+	imported := 0
+	for _, entry := range result.Entries {
+		_, err := v.Add(entry)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "  Error importing %s: %v\n", entry.Name, err)
+			continue
+		}
+		imported++
+	}
+
+	fmt.Printf("\nImported %d/%d entries into vault.\n", imported, result.Imported)
+
+	// Security reminder
+	fmt.Println("\nDon't forget to delete the export file:")
+	fmt.Printf("  rm %s\n", filePath)
+}
+
 func cmdGenerate() {
 	length := 20
 	pw, err := crypto.GeneratePassword(length, true, true, true, true)
@@ -224,6 +297,7 @@ Usage:
   xpass get <name>   Get entry (--copy to clipboard)
   xpass add <name>   Add entry (--password, --username, --url)
   xpass list         List all entries
+  xpass import <f>   Import from 1Password (CSV/JSON)
   xpass gen          Generate password (--copy to clipboard)
   xpass version      Show version
   xpass help         Show this help`)
