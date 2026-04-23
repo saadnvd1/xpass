@@ -7,6 +7,8 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"golang.org/x/term"
+
 	"github.com/saadnvd1/xpass/internal/clipboard"
 	"github.com/saadnvd1/xpass/internal/crypto"
 	"github.com/saadnvd1/xpass/internal/importer"
@@ -229,16 +231,28 @@ func cmdImport(v *vault.Vault) {
 	// Now unlock
 	requireUnlock(v)
 
-	// Import entries
+	// Import entries with progress
 	imported := 0
-	for _, entry := range result.Entries {
+	total := len(result.Entries)
+	barWidth := 30
+
+	for i, entry := range result.Entries {
 		_, err := v.Add(entry)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "  Error importing %s: %v\n", entry.Name, err)
+			fmt.Fprintf(os.Stderr, "\n  Error importing %s: %v\n", entry.Name, err)
 			continue
 		}
 		imported++
+
+		// Progress bar
+		pct := float64(i+1) / float64(total)
+		filled := int(pct * float64(barWidth))
+		bar := strings.Repeat("█", filled) + strings.Repeat("░", barWidth-filled)
+		fmt.Fprintf(os.Stderr, "\r  [%s] %d/%d  %s", bar, i+1, total, entry.Name)
+		// Clear rest of line in case previous name was longer
+		fmt.Fprintf(os.Stderr, "\033[K")
 	}
+	fmt.Fprintf(os.Stderr, "\r\033[K") // clear progress line
 
 	fmt.Printf("\nImported %d/%d entries into vault.\n", imported, result.Imported)
 
@@ -282,10 +296,14 @@ func requireUnlock(v *vault.Vault) string {
 }
 
 func readPassword() string {
-	// For now, simple stdin read. Will add terminal raw mode later.
-	var pw string
-	fmt.Scanln(&pw)
-	return pw
+	pw, err := term.ReadPassword(int(os.Stdin.Fd()))
+	if err != nil {
+		// Fallback to plain read
+		var s string
+		fmt.Scanln(&s)
+		return s
+	}
+	return string(pw)
 }
 
 func printUsage() {
