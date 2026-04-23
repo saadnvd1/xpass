@@ -158,20 +158,26 @@ func (m Model) updateListSearch(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.searching = false
 			m.searchQuery = m.searchInput.Value()
 			m.searchInput.Blur()
-			m.refreshEntries()
-			m.cursor = 0
 			return m, nil
 
 		case "esc":
 			m.searching = false
+			m.searchQuery = ""
+			m.searchInput.SetValue("")
 			m.searchInput.Blur()
-			m.searchInput.SetValue(m.searchQuery)
+			m.refreshEntries()
+			m.cursor = 0
 			return m, nil
 		}
 	}
 
 	var cmd tea.Cmd
 	m.searchInput, cmd = m.searchInput.Update(msg)
+
+	// Live filter as you type
+	m.searchQuery = m.searchInput.Value()
+	m.refreshEntries()
+	m.cursor = 0
 	return m, cmd
 }
 
