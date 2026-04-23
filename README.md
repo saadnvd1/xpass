@@ -2,19 +2,36 @@
 
 A terminal password manager. Single binary, no cloud, no subscription.
 
-Your passwords encrypted locally with AES-256-GCM. A Bubble Tea TUI for browsing, or CLI commands for scripting. Import your 1Password vault and never look back.
+Your passwords live on your machine, encrypted with AES-256-GCM. Browse them in a Bubble Tea TUI or use CLI commands for scripting. Sync across devices with a private git repo. Import your 1Password vault and never look back.
 
 ## Install
+
+### From source (recommended)
+
+```bash
+git clone https://github.com/saadnvd1/xpass.git
+cd xpass
+make install
+```
+
+This builds the binary and copies it to `/usr/local/bin/xpass`.
+
+### With Go
 
 ```bash
 go install github.com/saadnvd1/xpass@latest
 ```
 
-Or build from source:
+Make sure `~/go/bin` is in your `PATH`:
 
 ```bash
-git clone https://github.com/saadnvd1/xpass.git
-cd xpass && go build -o xpass .
+export PATH="$HOME/go/bin:$PATH"  # add to ~/.zshrc
+```
+
+### Verify
+
+```bash
+xpass version
 ```
 
 ## Quick start
@@ -27,93 +44,84 @@ xpass init
 xpass
 ```
 
-That's it. Pick a master password, start adding entries.
+Pick a master password. That's the only thing between your data and the void — there's no recovery if you forget it.
 
 ## Import from 1Password
 
-Export your 1Password vault (desktop app > File > Export), then:
+Export your vault from the 1Password desktop app (File > Export), then:
 
 ```bash
-xpass import 1password-export.csv
+xpass import ~/Downloads/export.1pux
 ```
 
-Supports CSV and JSON exports. All entry types are mapped: logins, secure notes, credit cards, identities. TOTP secrets carry over too.
+Supports `.1pux`, `.csv`, and `.json` exports. All entry types carry over — logins, secure notes, credit cards, identities, TOTP secrets.
 
-After import, delete the export file — it contains your passwords in plaintext.
+Delete the export file after import. It contains your passwords in plaintext.
 
 ## TUI
 
-The default mode. Vim-style navigation, fuzzy search, everything you need.
+The default mode. Vim-style navigation, real-time search, live TOTP codes.
 
 ```
-  xpass
+xpass
 ```
 
 | Key | Action |
 |-----|--------|
-| `j` / `k` | Navigate |
-| `enter` | View entry |
-| `/` | Search |
+| `j` / `k` | Navigate up/down |
+| `enter` | View entry details |
+| `/` | Search (filters as you type) |
 | `a` | Add login |
 | `1` `2` `3` `4` | Add login / API key / SSH key / note |
 | `c` | Copy password to clipboard |
 | `s` | Show/hide secrets |
 | `u` | Copy username |
+| `t` | Copy TOTP code |
 | `e` | Edit entry |
 | `d` | Delete entry |
 | `f` | Toggle favorite |
 | `p` | Password generator |
+| `G` / `g` | Jump to bottom/top |
 | `q` | Lock vault |
 
 ## CLI
 
-For scripting, cron jobs, and quick lookups.
+For scripting, cron jobs, and quick lookups. Password input is hidden.
 
 ```bash
-# Get a password (prints to stdout)
-xpass get github
-
-# Get and copy to clipboard (auto-clears in 30s)
-xpass get github --copy
-
-# Add an entry
-xpass add github --username user --password pass --url github.com
-
-# List everything
+xpass get github              # print password
+xpass get github --copy       # copy to clipboard (auto-clears 30s)
+xpass add github -u user -p pass --url github.com
 xpass list
-
-# Generate a password
-xpass gen
-xpass gen --copy
-
-# Import from 1Password
-xpass import export.csv
-
-# Sync across machines
-xpass remote git@github.com:you/xpass-vault.git
-xpass push
-xpass pull
-xpass sync          # show sync status
+xpass gen                     # generate password
+xpass gen --copy              # generate and copy
+xpass import export.csv       # import from 1Password
 ```
 
 ## Multi-device sync
 
-Sync your vault across machines using a private git repo. The encrypted files are safe to push — they're AES-256-GCM ciphertext, useless without your master password.
+Sync your encrypted vault across machines using a private git repo. The files pushed are AES-256-GCM ciphertext — useless without your master password.
 
 ```bash
-# Machine 1: set up sync
-xpass remote git@github.com:you/xpass-vault.git
+# Machine 1: set up
+xpass remote git@github.com:you/my-vault.git
 xpass push
 
-# Machine 2: pull existing vault
+# Machine 2: pull
 xpass init        # use the SAME master password
-xpass remote git@github.com:you/xpass-vault.git
+xpass remote git@github.com:you/my-vault.git
 xpass pull
 ```
 
-Changes auto-commit after every add/edit/delete. Just `xpass push` when you're done, `xpass pull` on other machines.
+Every add/edit/delete auto-commits locally. `push` when done, `pull` on other machines.
 
-No key file to transfer. Same password = same decryption key (via PBKDF2). The salt is stored in the encrypted files, so it travels with the vault.
+No key file to transfer between machines. Same password = same decryption key via PBKDF2. The salt travels with the encrypted files.
+
+```bash
+xpass push        # push changes to remote
+xpass pull        # pull from remote
+xpass sync        # check sync status
+```
 
 ## Security
 
@@ -121,25 +129,13 @@ No key file to transfer. Same password = same decryption key (via PBKDF2). The s
 |---|---|
 | Encryption | AES-256-GCM |
 | Key derivation | PBKDF2-SHA256, 600,000 iterations |
-| Salt | Random 32 bytes per encryption |
-| IV/Nonce | Random per encryption |
+| Salt | Random 32 bytes, unique per encryption |
+| IV/Nonce | Random, unique per encryption |
 | Clipboard | Auto-clears after 30 seconds |
 | File permissions | 0600 on all vault files |
-| Sync | Git-based, encrypted files only, no plaintext in history |
-| Master password | Never stored — derived key verified via GCM auth tag |
-
-The vault at `~/.xpass/` contains only encrypted JSON. Wrong password = GCM authentication failure. No password hash stored anywhere.
-
-## Entry types
-
-- **Login** — username, email, password, URL, TOTP
-- **API Key** — key, secret, endpoint
-- **SSH Key** — private/public key, passphrase
-- **Secure Note** — freeform encrypted text
-- **Credit Card** — number, CVV, expiry, PIN
-- **Database** — host, port, credentials, connection string
-- **Server** — host, protocol, credentials
-- **Crypto Wallet** — address, private key, seed phrase
+| Sync | Git-based, encrypted files only |
+| Master password | Never stored — verified via GCM auth tag |
+| Dependencies | Go stdlib crypto + x/crypto. No third-party crypto. |
 
 ## How it works
 
@@ -156,11 +152,27 @@ Master password
   AES-256-GCM encrypt/decrypt
       |
       v
-  ~/.xpass/vault.json  (encrypted entries)
-  ~/.xpass/config.json (encrypted config)
+  ~/.xpass/vault.json   (encrypted entries)
+  ~/.xpass/config.json  (encrypted config)
+  ~/.xpass/history.json (encrypted history)
 ```
 
-No daemon, no agent, no background process. Unlock, use, quit. Data stays encrypted at rest.
+No daemon. No agent. No background process. Unlock, use, quit. Data encrypted at rest.
+
+## Entry types
+
+- **Login** — username, email, password, URL, TOTP
+- **API Key** — key, secret, endpoint
+- **SSH Key** — private/public key, passphrase
+- **Secure Note** — freeform encrypted text
+- **Credit Card** — number, CVV, expiry, PIN
+- **Database** — type, host, port, credentials
+- **Server** — host, protocol, credentials
+- **Crypto Wallet** — address, seed phrase, private key
+
+## Vault location
+
+Everything lives at `~/.xpass/`. Back it up, git-sync it, or leave it local.
 
 ## License
 
