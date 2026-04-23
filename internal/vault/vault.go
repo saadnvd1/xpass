@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/saadnvd1/xpass/internal/crypto"
+	"github.com/saadnvd1/xpass/internal/sync"
 )
 
 const (
@@ -23,11 +24,17 @@ type Vault struct {
 	entries  []Entry
 	config   Config
 	password string
+	sync     *sync.Sync
 }
 
 // New creates a vault instance pointing at dir
 func New(dir string) *Vault {
-	return &Vault{dir: dir}
+	return &Vault{dir: dir, sync: sync.New(dir)}
+}
+
+// Sync returns the sync manager
+func (v *Vault) Sync() *sync.Sync {
+	return v.sync
 }
 
 // DefaultDir returns ~/.xpass
@@ -289,7 +296,14 @@ func (v *Vault) save() error {
 	if err != nil {
 		return err
 	}
-	return v.encryptToFile(ConfigFile, string(configData))
+	if err := v.encryptToFile(ConfigFile, string(configData)); err != nil {
+		return err
+	}
+
+	// Auto-commit if git is set up
+	v.sync.AutoCommit()
+
+	return nil
 }
 
 func (v *Vault) encryptToFile(filename, plaintext string) error {

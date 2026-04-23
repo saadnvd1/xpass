@@ -88,7 +88,32 @@ xpass gen --copy
 
 # Import from 1Password
 xpass import export.csv
+
+# Sync across machines
+xpass remote git@github.com:you/xpass-vault.git
+xpass push
+xpass pull
+xpass sync          # show sync status
 ```
+
+## Multi-device sync
+
+Sync your vault across machines using a private git repo. The encrypted files are safe to push — they're AES-256-GCM ciphertext, useless without your master password.
+
+```bash
+# Machine 1: set up sync
+xpass remote git@github.com:you/xpass-vault.git
+xpass push
+
+# Machine 2: pull existing vault
+xpass init        # use the SAME master password
+xpass remote git@github.com:you/xpass-vault.git
+xpass pull
+```
+
+Changes auto-commit after every add/edit/delete. Just `xpass push` when you're done, `xpass pull` on other machines.
+
+No key file to transfer. Same password = same decryption key (via PBKDF2). The salt is stored in the encrypted files, so it travels with the vault.
 
 ## Security
 
@@ -100,7 +125,7 @@ xpass import export.csv
 | IV/Nonce | Random per encryption |
 | Clipboard | Auto-clears after 30 seconds |
 | File permissions | 0600 on all vault files |
-| Network | Zero network calls (no telemetry, no cloud) |
+| Sync | Git-based, encrypted files only, no plaintext in history |
 | Master password | Never stored — derived key verified via GCM auth tag |
 
 The vault at `~/.xpass/` contains only encrypted JSON. Wrong password = GCM authentication failure. No password hash stored anywhere.

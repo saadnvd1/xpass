@@ -37,6 +37,14 @@ func main() {
 		cmdList(v)
 	case "import":
 		cmdImport(v)
+	case "remote":
+		cmdRemote(v)
+	case "push":
+		cmdPush(v)
+	case "pull":
+		cmdPull(v)
+	case "sync":
+		cmdSync(v)
 	case "generate", "gen":
 		cmdGenerate()
 	case "version":
@@ -261,6 +269,59 @@ func cmdImport(v *vault.Vault) {
 	fmt.Printf("  rm %s\n", filePath)
 }
 
+func cmdRemote(v *vault.Vault) {
+	if len(os.Args) < 3 {
+		// Show current remote
+		remote := v.Sync().GetRemote()
+		if remote == "" {
+			fmt.Println("No remote configured.")
+			fmt.Println("\nUsage: xpass remote <git-url>")
+			fmt.Println("  e.g. xpass remote git@github.com:you/xpass-vault.git")
+		} else {
+			fmt.Println(remote)
+		}
+		return
+	}
+
+	url := os.Args[2]
+
+	// Init git repo if needed
+	if err := v.Sync().Init(); err != nil {
+		fmt.Fprintln(os.Stderr, "Error initializing git:", err)
+		os.Exit(1)
+	}
+
+	if err := v.Sync().SetRemote(url); err != nil {
+		fmt.Fprintln(os.Stderr, "Error setting remote:", err)
+		os.Exit(1)
+	}
+
+	fmt.Println("Remote set to", url)
+}
+
+func cmdPush(v *vault.Vault) {
+	fmt.Println("Pushing vault to remote...")
+	if err := v.Sync().Push(); err != nil {
+		fmt.Fprintln(os.Stderr, "Error:", err)
+		os.Exit(1)
+	}
+	fmt.Println("Pushed.")
+}
+
+func cmdPull(v *vault.Vault) {
+	fmt.Println("Pulling vault from remote...")
+	if err := v.Sync().Pull(); err != nil {
+		fmt.Fprintln(os.Stderr, "Error:", err)
+		os.Exit(1)
+	}
+	fmt.Println("Pulled. Unlock to see updated entries.")
+}
+
+func cmdSync(v *vault.Vault) {
+	status := v.Sync().Status()
+	fmt.Println("Sync:", status)
+}
+
 func cmdGenerate() {
 	length := 20
 	pw, err := crypto.GeneratePassword(length, true, true, true, true)
@@ -315,7 +376,11 @@ Usage:
   xpass get <name>   Get entry (--copy to clipboard)
   xpass add <name>   Add entry (--password, --username, --url)
   xpass list         List all entries
-  xpass import <f>   Import from 1Password (CSV/JSON)
+  xpass import <f>   Import from 1Password (CSV/JSON/1pux)
+  xpass remote <url> Set git remote for sync
+  xpass push         Push vault to remote
+  xpass pull         Pull vault from remote
+  xpass sync         Show sync status
   xpass gen          Generate password (--copy to clipboard)
   xpass version      Show version
   xpass help         Show this help`)
