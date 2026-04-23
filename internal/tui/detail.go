@@ -34,6 +34,20 @@ func (m Model) updateDetail(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.selected = nil
 			return m, nil
 
+		case "j", "down":
+			m.detailScroll++
+			return m, nil
+
+		case "k", "up":
+			if m.detailScroll > 0 {
+				m.detailScroll--
+			}
+			return m, nil
+
+		case "g":
+			m.detailScroll = 0
+			return m, nil
+
 		case "s":
 			m.showSecret = !m.showSecret
 			return m, nil
@@ -217,6 +231,7 @@ func (m Model) viewDetail() string {
 	// Help
 	b.WriteString("\n\n")
 	helpItems := []string{
+		"j/k", "scroll",
 		"s", "show/hide",
 		"c", "copy secret",
 		"u", "copy user",
@@ -225,20 +240,105 @@ func (m Model) viewDetail() string {
 		helpItems = append(helpItems, "t", "copy TOTP")
 	}
 	helpItems = append(helpItems, "e", "edit", "d", "delete", "f", "fav", "esc", "back")
-	b.WriteString(helpBar(helpItems...))
+	helpLine := helpBar(helpItems...)
 
-	return b.String()
+	// Apply scrolling — split into lines, show visible window
+	content := b.String()
+	lines := strings.Split(content, "\n")
+
+	// Reserve lines for help bar
+	visible := m.height - 3
+	if visible < 5 {
+		visible = 5
+	}
+
+	// Clamp scroll
+	maxScroll := len(lines) - visible
+	if maxScroll < 0 {
+		maxScroll = 0
+	}
+	scroll := m.detailScroll
+	if scroll > maxScroll {
+		scroll = maxScroll
+	}
+
+	end := scroll + visible
+	if end > len(lines) {
+		end = len(lines)
+	}
+
+	visibleLines := lines[scroll:end]
+	result := strings.Join(visibleLines, "\n")
+
+	// Scroll indicator
+	if maxScroll > 0 {
+		scrollPct := ""
+		if scroll == 0 {
+			scrollPct = mutedStyle.Render("  [top]")
+		} else if scroll >= maxScroll {
+			scrollPct = mutedStyle.Render("  [bottom]")
+		} else {
+			pct := scroll * 100 / maxScroll
+			scrollPct = mutedStyle.Render(fmt.Sprintf("  [%d%%]", pct))
+		}
+		result += scrollPct
+	}
+
+	result += "\n" + helpLine
+
+	return result
 }
 
 func field(label, value string, masked bool) string {
 	l := labelStyle.Render(label)
-	var v string
 	if masked {
-		v = secretStyle.Render(strings.Repeat("*", min(len(value), 20)))
-	} else {
-		v = valueStyle.Render(value)
+		return l + secretStyle.Render(strings.Repeat("*", min(len(value), 20))) + "\n"
 	}
-	return l + v + "\n"
+
+	// Wrap long values across multiple lines
+	maxWidth := 60
+	if len(value) <= maxWidth {
+		return l + valueStyle.Render(value) + "\n"
+	}
+
+	// First line with label
+	var result strings.Builder
+	result.WriteString(l)
+
+	indent := strings.Repeat(" ", 16) // match labelStyle width
+	remaining := value
+	first := true
+
+	for len(remaining) > 0 {
+		lineWidth := maxWidth
+		if first {
+			first = false
+		} else {
+			result.WriteString(indent)
+		}
+
+		if len(remaining) <= lineWidth {
+			result.WriteString(valueStyle.Render(remaining) + "\n")
+			break
+		}
+
+		// Try to break at a space
+		cut := lineWidth
+		for cut > lineWidth/2 {
+			if remaining[cut] == ' ' {
+				break
+			}
+			cut--
+		}
+		if cut <= lineWidth/2 {
+			cut = lineWidth // no good break point, hard cut
+		}
+
+		result.WriteString(valueStyle.Render(remaining[:cut]) + "\n")
+		remaining = strings.TrimLeft(remaining[cut:], " ")
+	}
+
+	return result.String()
 }
 
 func (m *Model) initEditInputs() {
