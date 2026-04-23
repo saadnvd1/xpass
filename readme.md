@@ -47,15 +47,45 @@ xpass gen --copy              # generate and copy password
 xpass import export.1pux      # import from 1Password
 ```
 
-### Sync
+### Multi-device sync
+
+Sync your vault across machines using a private git repo. Only encrypted files are pushed — useless without your master password.
+
+#### First machine (setup)
 
 ```sh
-xpass remote git@github.com:you/vault.git
-xpass push                    # push encrypted vault
-xpass pull                    # pull on other machines
+# Create a private repo for your vault (once)
+gh repo create my-vault --private
+
+xpass remote git@github.com:you/my-vault.git
+xpass push
 ```
 
-Same master password on both machines. No key file to transfer.
+#### New machine
+
+```sh
+# Install xpass
+git clone https://github.com/saadnvd1/xpass.git && cd xpass && make install
+
+# Init with the SAME master password
+xpass init
+
+# Connect and pull
+xpass remote git@github.com:you/my-vault.git
+xpass pull
+```
+
+That's it. Same password on both machines derives the same key. No key file to copy.
+
+#### Day-to-day
+
+```sh
+xpass push         # after making changes
+xpass pull         # before working on another machine
+xpass sync         # check if ahead/behind
+```
+
+Changes auto-commit locally after every add/edit/delete. Just remember to push.
 
 ### TUI keybindings
 
