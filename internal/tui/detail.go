@@ -1,0 +1,263 @@
+package tui
+
+import (
+	"fmt"
+	"strings"
+
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/saadnvd1/xpass/internal/vault"
+)
+
+func (m Model) updateDetail(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		switch msg.String() {
+		case "esc", "q", "h", "left":
+			m.view = viewList
+			m.selected = nil
+			return m, nil
+
+		case "s":
+			m.showSecret = !m.showSecret
+			return m, nil
+
+		case "c":
+			if m.selected != nil {
+				pw := m.selected.Password
+				if pw == "" {
+					pw = m.selected.APIKey
+				}
+				if pw == "" {
+					pw = m.selected.PrivateKey
+				}
+				if pw != "" {
+					return m, m.copyToClipboard(pw, "secret")
+				}
+			}
+			return m, nil
+
+		case "u":
+			if m.selected != nil && m.selected.Username != "" {
+				return m, m.copyToClipboard(m.selected.Username, "username")
+			}
+			return m, nil
+
+		case "e":
+			if m.selected != nil {
+				m.view = viewEdit
+				m.editingEntry = m.selected
+				m.initEditInputs()
+			}
+			return m, nil
+
+		case "d":
+			if m.selected != nil {
+				m.deleteTarget = m.selected
+				m.view = viewConfirmDelete
+			}
+			return m, nil
+
+		case "f":
+			if m.selected != nil {
+				m.selected.Favorite = !m.selected.Favorite
+				m.vault.Update(m.selected.ID, *m.selected)
+				m.refreshEntries()
+			}
+			return m, nil
+		}
+	}
+	return m, nil
+}
+
+func (m Model) viewDetail() string {
+	if m.selected == nil {
+		return "No entry selected"
+	}
+
+	e := m.selected
+	var b strings.Builder
+
+	// Header
+	b.WriteString(titleStyle.Render(e.Name) + "\n")
+	b.WriteString(typeBadgeStyle.Render(e.Type.DisplayName()))
+	if e.Favorite {
+		b.WriteString(warningStyle.Render(" *"))
+	}
+	b.WriteString("\n\n")
+
+	// Fields based on type
+	switch e.Type {
+	case vault.TypeLogin:
+		if e.Username != "" {
+			b.WriteString(field("Username", e.Username, false))
+		}
+		if e.Email != "" {
+			b.WriteString(field("Email", e.Email, false))
+		}
+		b.WriteString(field("Password", e.Password, !m.showSecret))
+		if e.URL != "" {
+			b.WriteString(field("URL", e.URL, false))
+		}
+		if e.TOTP != nil {
+			b.WriteString(field("TOTP", e.TOTP.Secret, !m.showSecret))
+		}
+
+	case vault.TypeSecureNote:
+		b.WriteString(field("Content", e.Content, !m.showSecret))
+
+	case vault.TypeAPIKey:
+		b.WriteString(field("API Key", e.APIKey, !m.showSecret))
+		if e.APISecret != "" {
+			b.WriteString(field("API Secret", e.APISecret, !m.showSecret))
+		}
+		if e.Endpoint != "" {
+			b.WriteString(field("Endpoint", e.Endpoint, false))
+		}
+
+	case vault.TypeSSHKey:
+		b.WriteString(field("Key Type", e.KeyType, false))
+		b.WriteString(field("Private Key", e.PrivateKey, !m.showSecret))
+		if e.PublicKey != "" {
+			b.WriteString(field("Public Key", e.PublicKey, false))
+		}
+		if e.Passphrase != "" {
+			b.WriteString(field("Passphrase", e.Passphrase, !m.showSecret))
+		}
+
+	case vault.TypeCreditCard:
+		b.WriteString(field("Cardholder", e.CardholderName, false))
+		b.WriteString(field("Number", e.CardNumber, !m.showSecret))
+		b.WriteString(field("Expiry", e.ExpiryMonth+"/"+e.ExpiryYear, false))
+		b.WriteString(field("CVV", e.CVV, !m.showSecret))
+		if e.PIN != "" {
+			b.WriteString(field("PIN", e.PIN, !m.showSecret))
+		}
+
+	case vault.TypeDatabase:
+		b.WriteString(field("Type", e.DBType, false))
+		b.WriteString(field("Host", e.Host, false))
+		if e.Port > 0 {
+			b.WriteString(field("Port", fmt.Sprintf("%d", e.Port), false))
+		}
+		b.WriteString(field("Database", e.Database, false))
+		b.WriteString(field("Username", e.Username, false))
+		b.WriteString(field("Password", e.Password, !m.showSecret))
+
+	case vault.TypeServer:
+		b.WriteString(field("Host", e.Host, false))
+		b.WriteString(field("Protocol", e.Protocol, false))
+		b.WriteString(field("Username", e.Username, false))
+		if e.Password != "" {
+			b.WriteString(field("Password", e.Password, !m.showSecret))
+		}
+	}
+
+	// Notes
+	if e.Notes != "" {
+		b.WriteString("\n" + labelStyle.Render("Notes") + "\n")
+		b.WriteString(mutedStyle.Render(e.Notes) + "\n")
+	}
+
+	// Tags
+	if len(e.Tags) > 0 {
+		b.WriteString("\n")
+		for _, tag := range e.Tags {
+			b.WriteString(tagStyle.Render(tag) + " ")
+		}
+		b.WriteString("\n")
+	}
+
+	// Metadata
+	b.WriteString("\n" + mutedStyle.Render(fmt.Sprintf("Created: %s  |  Updated: %s  |  v%d",
+		e.CreatedAt[:10], e.UpdatedAt[:10], e.Version)))
+
+	// Status
+	if m.statusMsg != "" {
+		b.WriteString("\n\n" + successStyle.Render(m.statusMsg))
+	}
+
+	// Help
+	b.WriteString("\n\n")
+	b.WriteString(helpBar(
+		"s", "show/hide",
+		"c", "copy secret",
+		"u", "copy user",
+		"e", "edit",
+		"d", "delete",
+		"f", "fav",
+		"esc", "back",
+	))
+
+	return b.String()
+}
+
+func field(label, value string, masked bool) string {
+	l := labelStyle.Render(label)
+	var v string
+	if masked {
+		v = secretStyle.Render(strings.Repeat("*", min(len(value), 20)))
+	} else {
+		v = valueStyle.Render(value)
+	}
+	return l + v + "\n"
+}
+
+func (m *Model) initEditInputs() {
+	if m.editingEntry == nil {
+		return
+	}
+
+	m.initAddInputs(m.editingEntry.Type)
+
+	// Pre-fill inputs with existing values
+	e := m.editingEntry
+	m.addInputs[0].SetValue(e.Name) // name is always first
+
+	switch e.Type {
+	case vault.TypeLogin:
+		if len(m.addInputs) > 1 {
+			m.addInputs[1].SetValue(e.Username)
+		}
+		if len(m.addInputs) > 2 {
+			m.addInputs[2].SetValue(e.Email)
+		}
+		if len(m.addInputs) > 3 {
+			m.addInputs[3].SetValue(e.Password)
+		}
+		if len(m.addInputs) > 4 {
+			m.addInputs[4].SetValue(e.URL)
+		}
+		if len(m.addInputs) > 5 && e.TOTP != nil {
+			m.addInputs[5].SetValue(e.TOTP.Secret)
+		}
+
+	case vault.TypeSecureNote:
+		if len(m.addInputs) > 1 {
+			m.addInputs[1].SetValue(e.Content)
+		}
+
+	case vault.TypeAPIKey:
+		if len(m.addInputs) > 1 {
+			m.addInputs[1].SetValue(e.APIKey)
+		}
+		if len(m.addInputs) > 2 {
+			m.addInputs[2].SetValue(e.APISecret)
+		}
+		if len(m.addInputs) > 3 {
+			m.addInputs[3].SetValue(e.Endpoint)
+		}
+
+	case vault.TypeSSHKey:
+		if len(m.addInputs) > 1 {
+			m.addInputs[1].SetValue(e.PrivateKey)
+		}
+		if len(m.addInputs) > 2 {
+			m.addInputs[2].SetValue(e.Passphrase)
+		}
+	}
+
+	// Tags (always last)
+	if len(m.addInputs) > 0 && len(e.Tags) > 0 {
+		m.addInputs[len(m.addInputs)-1].SetValue(strings.Join(e.Tags, ", "))
+	}
+}
