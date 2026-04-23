@@ -77,7 +77,7 @@ func (s *Sync) AutoCommit() error {
 		return nil // nothing to commit
 	}
 
-	if err := s.git("add", "vault.json", "config.json", ".gitignore"); err != nil {
+	if err := s.git("add", "vault.json", "config.json", "history.json", ".gitignore"); err != nil {
 		return err
 	}
 
@@ -198,9 +198,11 @@ func (s *Sync) isGitRepo() bool {
 func (s *Sync) git(args ...string) error {
 	cmd := exec.Command("git", args...)
 	cmd.Dir = s.dir
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	return cmd.Run()
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("%s: %s", err, strings.TrimSpace(string(out)))
+	}
+	return nil
 }
 
 func (s *Sync) gitOutput(args ...string) (string, error) {
