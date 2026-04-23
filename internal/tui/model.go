@@ -42,9 +42,10 @@ type Model struct {
 	searchQuery string
 
 	// Detail
-	selected     *vault.Entry
-	showSecret   bool
-	detailScroll int
+	selected       *vault.Entry
+	showSecret     bool
+	detailScroll   int
+	detailMaxScroll int
 
 	// Add/Edit
 	addInputs    []textinput.Model

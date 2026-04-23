@@ -12,6 +12,10 @@ import (
 
 type totpTickMsg struct{}
 
+// Package-level var to communicate max scroll from View() back to Update()
+// (View is a value receiver so it can't mutate the model directly)
+var lastDetailMaxScroll int
+
 func totpTick() tea.Cmd {
 	return tea.Tick(time.Second, func(time.Time) tea.Msg {
 		return totpTickMsg{}
@@ -35,13 +39,19 @@ func (m Model) updateDetail(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 
 		case "j", "down":
-			m.detailScroll++
+			if m.detailScroll < lastDetailMaxScroll {
+				m.detailScroll++
+			}
 			return m, nil
 
 		case "k", "up":
 			if m.detailScroll > 0 {
 				m.detailScroll--
 			}
+			return m, nil
+
+		case "G":
+			m.detailScroll = lastDetailMaxScroll
 			return m, nil
 
 		case "g":
@@ -252,11 +262,14 @@ func (m Model) viewDetail() string {
 		visible = 5
 	}
 
-	// Clamp scroll
+	// Compute max scroll and store for update handler
 	maxScroll := len(lines) - visible
 	if maxScroll < 0 {
 		maxScroll = 0
 	}
+	// Write back via package-level var (View is value receiver)
+	lastDetailMaxScroll = maxScroll
+
 	scroll := m.detailScroll
 	if scroll > maxScroll {
 		scroll = maxScroll
