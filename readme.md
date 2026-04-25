@@ -12,7 +12,7 @@
 - **Bubble Tea TUI** with vim-style navigation and real-time search
 - **1Password import** from .1pux, .csv, and .json exports
 - **Git sync** across machines using a private repo
-- **Live TOTP** codes with countdown timer
+- **Live TOTP** codes with countdown timer + QR code scanning
 - **Clipboard** auto-clears after 30 seconds
 - **Single binary** — no runtime, no daemon, no cloud
 - Zero third-party crypto dependencies
@@ -45,6 +45,8 @@ xpass add github -u user -p pass --url github.com
 xpass list                    # list all entries
 xpass gen --copy              # generate and copy password
 xpass import export.1pux      # import from 1Password
+xpass scan qr.png             # scan QR code to add TOTP
+xpass scan qr.png -e github   # add TOTP to existing entry
 ```
 
 ### Multi-device sync
