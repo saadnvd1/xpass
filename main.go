@@ -51,6 +51,8 @@ func main() {
 		cmdPull(v)
 	case "sync":
 		cmdSync(v)
+	case "recovery":
+		cmdRecovery(v)
 	case "scan":
 		cmdScan(v)
 	case "generate", "gen":
@@ -470,6 +472,68 @@ func cmdScan(v *vault.Vault) {
 	}
 }
 
+func cmdRecovery(v *vault.Vault) {
+	if len(os.Args) < 4 {
+		fmt.Fprintln(os.Stderr, "Usage: xpass recovery <entry-name> <codes-file>")
+		fmt.Fprintln(os.Stderr, "\nImport recovery codes from a file into an existing entry.")
+		fmt.Fprintln(os.Stderr, "The file content is stored encrypted in the vault.")
+		os.Exit(1)
+	}
+
+	entryName := os.Args[2]
+	filePath := os.Args[3]
+
+	// Read file first
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "Error reading file:", err)
+		os.Exit(1)
+	}
+
+	content := strings.TrimSpace(string(data))
+	if content == "" {
+		fmt.Fprintln(os.Stderr, "File is empty")
+		os.Exit(1)
+	}
+
+	lines := strings.Split(content, "\n")
+	fmt.Printf("Found %d recovery codes in %s\n", len(lines), filePath)
+
+	requireUnlock(v)
+
+	entry := v.GetByName(entryName)
+	if entry == nil {
+		results := v.Search(entryName)
+		if len(results) == 0 {
+			fmt.Fprintln(os.Stderr, "Entry not found:", entryName)
+			os.Exit(1)
+		}
+		if len(results) > 1 {
+			fmt.Printf("Multiple matches, using: %s\n", results[0].Name)
+		}
+		entry = &results[0]
+	}
+
+	if entry.RecoveryCodes != "" {
+		old := strings.Split(strings.TrimSpace(entry.RecoveryCodes), "\n")
+		fmt.Printf("Entry already has %d recovery codes. Replace? [y/N] ", len(old))
+		var confirm string
+		fmt.Scanln(&confirm)
+		if strings.ToLower(confirm) != "y" {
+			fmt.Println("Cancelled.")
+			return
+		}
+	}
+
+	entry.RecoveryCodes = content
+	if _, err := v.Update(entry.ID, *entry); err != nil {
+		fmt.Fprintln(os.Stderr, "Error saving:", err)
+		os.Exit(1)
+	}
+
+	fmt.Printf("Imported %d recovery codes into %s\n", len(lines), entry.Name)
+}
+
 func cmdGenerate() {
 	length := 20
 	pw, err := crypto.GeneratePassword(length, true, true, true, true)
@@ -525,6 +589,7 @@ Usage:
   xpass add <name>   Add entry (--password, --username, --url)
   xpass list         List all entries
   xpass import <f>   Import from 1Password (CSV/JSON/1pux)
+  xpass recovery <n> <f>  Import recovery codes file into entry
   xpass scan <img>   Scan QR code image for TOTP (--entry <name>)
   xpass remote <url> Set git remote for sync
   xpass push         Push vault to remote

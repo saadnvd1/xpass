@@ -2,9 +2,11 @@ package tui
 
 import (
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/saadnvd1/xpass/internal/otp"
 	"github.com/saadnvd1/xpass/internal/vault"
@@ -111,6 +113,18 @@ func (m Model) updateDetail(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 
+		case "r":
+			if m.selected != nil {
+				ri := textinput.New()
+				ri.Placeholder = "Path to recovery codes file"
+				ri.CharLimit = 512
+				ri.Width = 50
+				ri.Focus()
+				m.recoveryInput = ri
+				m.view = viewRecoveryImport
+			}
+			return m, nil
+
 		case "f":
 			if m.selected != nil {
 				m.selected.Favorite = !m.selected.Favorite
@@ -214,6 +228,17 @@ func (m Model) viewDetail() string {
 		}
 	}
 
+	// Recovery codes
+	if e.RecoveryCodes != "" {
+		b.WriteString("\n" + labelStyle.Render("Recovery Codes") + "\n")
+		if m.showSecret {
+			b.WriteString(valueStyle.Render(e.RecoveryCodes) + "\n")
+		} else {
+			lines := strings.Split(strings.TrimSpace(e.RecoveryCodes), "\n")
+			b.WriteString(secretStyle.Render(fmt.Sprintf("[%d codes hidden — press s to show]", len(lines))) + "\n")
+		}
+	}
+
 	// Notes
 	if e.Notes != "" {
 		b.WriteString("\n" + labelStyle.Render("Notes") + "\n")
@@ -249,7 +274,7 @@ func (m Model) viewDetail() string {
 	if e.TOTP != nil {
 		helpItems = append(helpItems, "t", "copy TOTP")
 	}
-	helpItems = append(helpItems, "e", "edit", "d", "delete", "f", "fav", "esc", "back")
+	helpItems = append(helpItems, "r", "recovery codes", "e", "edit", "d", "delete", "f", "fav", "esc", "back")
 	helpLine := helpBar(helpItems...)
 
 	// Apply scrolling — split into lines, show visible window
@@ -352,6 +377,86 @@ func field(label, value string, masked bool) string {
 	}
 
 	return result.String()
+}
+
+func (m Model) updateRecoveryImport(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		switch msg.String() {
+		case "esc":
+			m.view = viewDetail
+			return m, nil
+
+		case "enter":
+			path := strings.TrimSpace(m.recoveryInput.Value())
+			if path == "" {
+				m.statusMsg = "No file path provided"
+				m.view = viewDetail
+				return m, clearStatusAfter(3 * time.Second)
+			}
+
+			// Expand ~ to home dir
+			if strings.HasPrefix(path, "~/") {
+				home, _ := os.UserHomeDir()
+				path = home + path[1:]
+			}
+
+			data, err := os.ReadFile(path)
+			if err != nil {
+				m.statusMsg = "Error reading file: " + err.Error()
+				m.view = viewDetail
+				return m, clearStatusAfter(3 * time.Second)
+			}
+
+			content := strings.TrimSpace(string(data))
+			if content == "" {
+				m.statusMsg = "File is empty"
+				m.view = viewDetail
+				return m, clearStatusAfter(3 * time.Second)
+			}
+
+			m.selected.RecoveryCodes = content
+			_, err = m.vault.Update(m.selected.ID, *m.selected)
+			if err != nil {
+				m.statusMsg = "Error saving: " + err.Error()
+				m.view = viewDetail
+				return m, clearStatusAfter(3 * time.Second)
+			}
+
+			lines := strings.Split(content, "\n")
+			m.statusMsg = fmt.Sprintf("Imported %d recovery codes", len(lines))
+			m.view = viewDetail
+			m.refreshEntries()
+			return m, clearStatusAfter(3 * time.Second)
+		}
+	}
+
+	var cmd tea.Cmd
+	m.recoveryInput, cmd = m.recoveryInput.Update(msg)
+	return m, cmd
+}
+
+func (m Model) viewRecoveryImport() string {
+	var b strings.Builder
+
+	b.WriteString(titleStyle.Render("Import Recovery Codes") + "\n\n")
+
+	if m.selected != nil {
+		b.WriteString(mutedStyle.Render("  For: "+m.selected.Name) + "\n\n")
+	}
+
+	b.WriteString("  " + m.recoveryInput.View() + "\n\n")
+	b.WriteString(mutedStyle.Render("  Enter path to recovery codes file (one code per line)") + "\n")
+
+	if m.selected != nil && m.selected.RecoveryCodes != "" {
+		lines := strings.Split(strings.TrimSpace(m.selected.RecoveryCodes), "\n")
+		b.WriteString(mutedStyle.Render(fmt.Sprintf("  Current: %d codes stored", len(lines))) + "\n")
+	}
+
+	b.WriteString("\n")
+	b.WriteString(helpBar("enter", "import", "esc", "cancel"))
+
+	return b.String()
 }
 
 func (m *Model) initEditInputs() {

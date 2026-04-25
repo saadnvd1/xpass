@@ -20,6 +20,7 @@ const (
 	viewEdit
 	viewGenerate
 	viewConfirmDelete
+	viewRecoveryImport
 )
 
 // Model is the top-level Bubble Tea model
@@ -67,6 +68,9 @@ type Model struct {
 
 	// Confirm delete
 	deleteTarget *vault.Entry
+
+	// Recovery code import
+	recoveryInput textinput.Model
 }
 
 // NewModel creates the initial TUI model
@@ -150,6 +154,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.updateGenerate(msg)
 	case viewConfirmDelete:
 		return m.updateConfirmDelete(msg)
+	case viewRecoveryImport:
+		return m.updateRecoveryImport(msg)
 	}
 
 	return m, nil
@@ -170,6 +176,8 @@ func (m Model) View() string {
 		return m.viewGenerate()
 	case viewConfirmDelete:
 		return m.viewConfirmDelete()
+	case viewRecoveryImport:
+		return m.viewRecoveryImport()
 	}
 	return ""
 }

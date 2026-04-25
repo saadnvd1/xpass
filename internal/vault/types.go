@@ -75,6 +75,9 @@ type Entry struct {
 	SeedPhrase    string `json:"seedPhrase,omitempty"`
 	Network       string `json:"network,omitempty"`
 
+	// Recovery codes (raw file content, encrypted with vault)
+	RecoveryCodes string `json:"recoveryCodes,omitempty"`
+
 	// Custom fields
 	CustomFields []CustomField `json:"customFields,omitempty"`
 }
