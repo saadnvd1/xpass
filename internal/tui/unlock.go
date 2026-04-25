@@ -132,8 +132,8 @@ func (m *Model) initAddInputs(entryType vault.EntryType) {
 		inputs = append(inputs, url)
 
 		totp := textinput.New()
-		totp.Placeholder = "TOTP secret (optional)"
-		totp.CharLimit = 128
+		totp.Placeholder = "TOTP secret or otpauth:// URI (optional)"
+		totp.CharLimit = 512
 		totp.Width = 40
 		inputs = append(inputs, totp)
 

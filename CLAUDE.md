@@ -27,6 +27,7 @@ internal/
     add.go                 # Add/edit entry form
     generate.go            # Password generator
     delete.go              # Delete confirmation
+  otp/otp.go               # TOTP generation, otpauth:// URI parsing
   importer/onepassword.go  # 1Password CSV/JSON import
   clipboard/clipboard.go   # System clipboard with auto-clear
 ```

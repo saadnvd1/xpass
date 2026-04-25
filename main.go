@@ -2,16 +2,22 @@ package main
 
 import (
 	"fmt"
+	"image"
+	_ "image/jpeg"
+	_ "image/png"
 	"os"
 	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/makiuchi-d/gozxing"
+	"github.com/makiuchi-d/gozxing/qrcode"
 	"golang.org/x/term"
 
 	"github.com/saadnvd1/xpass/internal/clipboard"
 	"github.com/saadnvd1/xpass/internal/crypto"
 	"github.com/saadnvd1/xpass/internal/importer"
+	"github.com/saadnvd1/xpass/internal/otp"
 	"github.com/saadnvd1/xpass/internal/tui"
 	"github.com/saadnvd1/xpass/internal/vault"
 )
@@ -45,6 +51,8 @@ func main() {
 		cmdPull(v)
 	case "sync":
 		cmdSync(v)
+	case "scan":
+		cmdScan(v)
 	case "generate", "gen":
 		cmdGenerate()
 	case "version":
@@ -322,6 +330,146 @@ func cmdSync(v *vault.Vault) {
 	fmt.Println("Sync:", status)
 }
 
+func cmdScan(v *vault.Vault) {
+	if len(os.Args) < 3 {
+		fmt.Fprintln(os.Stderr, "Usage: xpass scan <image.png> [--entry <name>]")
+		fmt.Fprintln(os.Stderr, "\nScan a QR code image to extract TOTP secret.")
+		fmt.Fprintln(os.Stderr, "Supports PNG and JPEG images.")
+		os.Exit(1)
+	}
+
+	imgPath := os.Args[2]
+
+	// Open and decode image
+	f, err := os.Open(imgPath)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "Error opening image:", err)
+		os.Exit(1)
+	}
+	defer f.Close()
+
+	img, _, err := image.Decode(f)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "Error decoding image:", err)
+		os.Exit(1)
+	}
+
+	// Decode QR code
+	bmp, err := gozxing.NewBinaryBitmapFromImage(img)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "Error processing image:", err)
+		os.Exit(1)
+	}
+
+	reader := qrcode.NewQRCodeReader()
+	result, err := reader.Decode(bmp, nil)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "Could not decode QR code from image")
+		os.Exit(1)
+	}
+
+	uri := result.GetText()
+	if !strings.HasPrefix(uri, "otpauth://") {
+		fmt.Fprintln(os.Stderr, "QR code does not contain an otpauth:// URI")
+		fmt.Fprintln(os.Stderr, "Got:", uri)
+		os.Exit(1)
+	}
+
+	totp := otp.ParseTOTPUri(uri)
+	if totp == nil {
+		fmt.Fprintln(os.Stderr, "Could not parse TOTP from URI:", uri)
+		os.Exit(1)
+	}
+
+	issuer, account := otp.ParseTOTPLabel(uri)
+	label := account
+	if issuer != "" {
+		label = issuer + " - " + account
+	}
+
+	fmt.Printf("Found TOTP: %s\n", label)
+	fmt.Printf("  Secret:    %s\n", totp.Secret)
+	fmt.Printf("  Algorithm: %s\n", totp.Algorithm)
+	fmt.Printf("  Digits:    %d\n", totp.Digits)
+	fmt.Printf("  Period:    %ds\n", totp.Period)
+
+	// Check for --entry flag
+	var entryName string
+	for i := 3; i < len(os.Args)-1; i++ {
+		if os.Args[i] == "--entry" || os.Args[i] == "-e" {
+			entryName = os.Args[i+1]
+			break
+		}
+	}
+
+	requireUnlock(v)
+
+	if entryName != "" {
+		// Update existing entry
+		entry := v.GetByName(entryName)
+		if entry == nil {
+			results := v.Search(entryName)
+			if len(results) == 0 {
+				fmt.Fprintln(os.Stderr, "Entry not found:", entryName)
+				os.Exit(1)
+			}
+			entry = &results[0]
+		}
+		entry.TOTP = totp
+		if _, err := v.Update(entry.ID, *entry); err != nil {
+			fmt.Fprintln(os.Stderr, "Error updating entry:", err)
+			os.Exit(1)
+		}
+		fmt.Printf("\nTOTP added to entry: %s\n", entry.Name)
+	} else {
+		// Prompt: add new or update existing
+		fmt.Printf("\nAdd as new entry or update existing?\n")
+		fmt.Printf("  [1] New entry (name: %s)\n", label)
+		fmt.Printf("  [2] Update existing entry\n")
+		fmt.Print("Choice [1/2]: ")
+
+		var choice string
+		fmt.Scanln(&choice)
+
+		switch choice {
+		case "2":
+			fmt.Print("Entry name: ")
+			var name string
+			fmt.Scanln(&name)
+			entry := v.GetByName(name)
+			if entry == nil {
+				results := v.Search(name)
+				if len(results) == 0 {
+					fmt.Fprintln(os.Stderr, "Entry not found:", name)
+					os.Exit(1)
+				}
+				entry = &results[0]
+			}
+			entry.TOTP = totp
+			if _, err := v.Update(entry.ID, *entry); err != nil {
+				fmt.Fprintln(os.Stderr, "Error updating entry:", err)
+				os.Exit(1)
+			}
+			fmt.Printf("TOTP added to entry: %s\n", entry.Name)
+		default:
+			entry := vault.Entry{
+				Type: vault.TypeLogin,
+				Name: label,
+				TOTP: totp,
+			}
+			if account != "" {
+				entry.Username = account
+			}
+			added, err := v.Add(entry)
+			if err != nil {
+				fmt.Fprintln(os.Stderr, "Error:", err)
+				os.Exit(1)
+			}
+			fmt.Printf("Created entry: %s (%s)\n", added.Name, added.ID[:8])
+		}
+	}
+}
+
 func cmdGenerate() {
 	length := 20
 	pw, err := crypto.GeneratePassword(length, true, true, true, true)
@@ -377,6 +525,7 @@ Usage:
   xpass add <name>   Add entry (--password, --username, --url)
   xpass list         List all entries
   xpass import <f>   Import from 1Password (CSV/JSON/1pux)
+  xpass scan <img>   Scan QR code image for TOTP (--entry <name>)
   xpass remote <url> Set git remote for sync
   xpass push         Push vault to remote
   xpass pull         Pull vault from remote

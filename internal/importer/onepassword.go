@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/saadnvd1/xpass/internal/otp"
 	"github.com/saadnvd1/xpass/internal/vault"
 )
 
@@ -301,7 +302,7 @@ func parsePUXItem(item puxItem) (*vault.Entry, error) {
 
 				if strings.Contains(title, "one-time") || strings.Contains(title, "otp") || strings.Contains(title, "2fa") {
 					if strings.HasPrefix(val, "otpauth://") {
-						entry.TOTP = parseTOTPUri(val)
+						entry.TOTP = otp.ParseTOTPUri(val)
 					} else if val != "" {
 						entry.TOTP = &vault.TOTP{Secret: val, Algorithm: "SHA1", Digits: 6, Period: 30}
 					}
@@ -452,7 +453,7 @@ func parseCSVRow(headerMap map[string]int, record []string) (*vault.Entry, error
 		entry.Password = password
 		entry.URL = url
 		if otpAuth != "" && strings.HasPrefix(otpAuth, "otpauth://") {
-			entry.TOTP = parseTOTPUri(otpAuth)
+			entry.TOTP = otp.ParseTOTPUri(otpAuth)
 		}
 	case vault.TypeSecureNote:
 		entry.Content = notes
@@ -715,7 +716,7 @@ func parseLoginFields(entry *vault.Entry, item opItem) {
 			entry.Password = f.Value
 		} else if f.Type == "otp" || name == "one-time password" {
 			if strings.HasPrefix(f.Value, "otpauth://") {
-				entry.TOTP = parseTOTPUri(f.Value)
+				entry.TOTP = otp.ParseTOTPUri(f.Value)
 			} else if f.Value != "" {
 				entry.TOTP = &vault.TOTP{Secret: f.Value, Algorithm: "SHA1", Digits: 6, Period: 30}
 			}
@@ -786,43 +787,3 @@ func sectionFieldValue(f opSectionField) string {
 	return fmt.Sprintf("%v", f.Value)
 }
 
-func parseTOTPUri(uri string) *vault.TOTP {
-	// Basic otpauth:// parser
-	// Format: otpauth://totp/Label?secret=XXX&algorithm=SHA1&digits=6&period=30
-	if !strings.HasPrefix(uri, "otpauth://totp/") {
-		return nil
-	}
-
-	totp := &vault.TOTP{
-		Algorithm: "SHA1",
-		Digits:    6,
-		Period:    30,
-	}
-
-	parts := strings.SplitN(uri, "?", 2)
-	if len(parts) < 2 {
-		return nil
-	}
-
-	for _, param := range strings.Split(parts[1], "&") {
-		kv := strings.SplitN(param, "=", 2)
-		if len(kv) != 2 {
-			continue
-		}
-		switch strings.ToLower(kv[0]) {
-		case "secret":
-			totp.Secret = kv[1]
-		case "algorithm":
-			totp.Algorithm = strings.ToUpper(kv[1])
-		case "digits":
-			fmt.Sscanf(kv[1], "%d", &totp.Digits)
-		case "period":
-			fmt.Sscanf(kv[1], "%d", &totp.Period)
-		}
-	}
-
-	if totp.Secret == "" {
-		return nil
-	}
-	return totp
-}

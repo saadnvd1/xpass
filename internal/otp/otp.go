@@ -9,8 +9,11 @@ import (
 	"fmt"
 	"hash"
 	"math"
+	"net/url"
 	"strings"
 	"time"
+
+	"github.com/saadnvd1/xpass/internal/vault"
 )
 
 // Generate returns the current TOTP code, seconds remaining, and period
@@ -96,6 +99,85 @@ func base32Decode(encoded string) []byte {
 	}
 
 	return bytes
+}
+
+// ParseTOTPUri parses an otpauth:// URI into a TOTP struct
+// Format: otpauth://totp/Label?secret=XXX&algorithm=SHA1&digits=6&period=30
+func ParseTOTPUri(uri string) *vault.TOTP {
+	if !strings.HasPrefix(uri, "otpauth://totp/") {
+		return nil
+	}
+
+	totp := &vault.TOTP{
+		Algorithm: "SHA1",
+		Digits:    6,
+		Period:    30,
+	}
+
+	parts := strings.SplitN(uri, "?", 2)
+	if len(parts) < 2 {
+		return nil
+	}
+
+	for _, param := range strings.Split(parts[1], "&") {
+		kv := strings.SplitN(param, "=", 2)
+		if len(kv) != 2 {
+			continue
+		}
+		switch strings.ToLower(kv[0]) {
+		case "secret":
+			totp.Secret = kv[1]
+		case "algorithm":
+			totp.Algorithm = strings.ToUpper(kv[1])
+		case "digits":
+			fmt.Sscanf(kv[1], "%d", &totp.Digits)
+		case "period":
+			fmt.Sscanf(kv[1], "%d", &totp.Period)
+		}
+	}
+
+	if totp.Secret == "" {
+		return nil
+	}
+	return totp
+}
+
+// ParseTOTPLabel extracts issuer and account from an otpauth:// URI
+func ParseTOTPLabel(uri string) (issuer, account string) {
+	if !strings.HasPrefix(uri, "otpauth://totp/") {
+		return "", ""
+	}
+
+	// Extract label between "otpauth://totp/" and "?"
+	label := strings.TrimPrefix(uri, "otpauth://totp/")
+	if idx := strings.Index(label, "?"); idx >= 0 {
+		label = label[:idx]
+	}
+	label, _ = url.PathUnescape(label)
+
+	// Check for issuer in query params
+	if idx := strings.Index(uri, "?"); idx >= 0 {
+		params := uri[idx+1:]
+		for _, param := range strings.Split(params, "&") {
+			kv := strings.SplitN(param, "=", 2)
+			if len(kv) == 2 && strings.ToLower(kv[0]) == "issuer" {
+				issuer, _ = url.QueryUnescape(kv[1])
+			}
+		}
+	}
+
+	// Label format: "Issuer:Account" or just "Account"
+	if strings.Contains(label, ":") {
+		parts := strings.SplitN(label, ":", 2)
+		if issuer == "" {
+			issuer = strings.TrimSpace(parts[0])
+		}
+		account = strings.TrimSpace(parts[1])
+	} else {
+		account = strings.TrimSpace(label)
+	}
+
+	return issuer, account
 }
 
 // TimeBar returns a visual progress bar for TOTP countdown

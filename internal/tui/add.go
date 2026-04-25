@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/saadnvd1/xpass/internal/otp"
 	"github.com/saadnvd1/xpass/internal/vault"
 )
 
@@ -89,11 +90,16 @@ func (m Model) saveEntry() (tea.Model, tea.Cmd) {
 			entry.URL = m.addInputs[4].Value()
 		}
 		if len(m.addInputs) > 5 && m.addInputs[5].Value() != "" {
-			entry.TOTP = &vault.TOTP{
-				Secret:    m.addInputs[5].Value(),
-				Algorithm: "SHA1",
-				Digits:    6,
-				Period:    30,
+			totpVal := m.addInputs[5].Value()
+			if strings.HasPrefix(totpVal, "otpauth://") {
+				entry.TOTP = otp.ParseTOTPUri(totpVal)
+			} else {
+				entry.TOTP = &vault.TOTP{
+					Secret:    totpVal,
+					Algorithm: "SHA1",
+					Digits:    6,
+					Period:    30,
+				}
 			}
 		}
 
