@@ -185,6 +185,16 @@ func (v *Vault) Update(id string, updates Entry) (*Entry, error) {
 	return nil, fmt.Errorf("entry not found: %s", id)
 }
 
+// ReplaceAll swaps in a whole edited list and saves once (a repair touching
+// many entries would otherwise re-derive the key and commit once per entry).
+func (v *Vault) ReplaceAll(entries []Entry) error {
+	if !v.IsUnlocked() {
+		return fmt.Errorf("vault is locked")
+	}
+	v.entries = entries
+	return v.save()
+}
+
 // Delete removes an entry by ID
 func (v *Vault) Delete(id string) error {
 	if !v.IsUnlocked() {

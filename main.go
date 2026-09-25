@@ -51,6 +51,8 @@ func main() {
 		cmdPull(v)
 	case "sync":
 		cmdSync(v)
+	case "repair":
+		cmdRepair(v)
 	case "recovery":
 		cmdRecovery(v)
 	case "scan":
@@ -472,6 +474,42 @@ func cmdScan(v *vault.Vault) {
 	}
 }
 
+// cmdRepair unwraps values the old 1Password importer stored as Go's print of
+// a typed field ("map[string:]", "map[creditCardNumber:…]"). It prints entry
+// and field names only, and saves once.
+func cmdRepair(v *vault.Vault) {
+	dry := len(os.Args) > 2 && os.Args[2] == "--dry-run"
+	requireUnlock(v)
+	entries := append([]vault.Entry(nil), v.Entries()...)
+	now := time.Now().UTC().Format(time.RFC3339)
+	entriesFixed, fieldsFixed := 0, 0
+	for i := range entries {
+		changed := importer.RepairEntry(&entries[i])
+		if len(changed) == 0 {
+			continue
+		}
+		entriesFixed++
+		fieldsFixed += len(changed)
+		entries[i].UpdatedAt = now
+		entries[i].Version++
+		fmt.Printf("  %s: %s\n", entries[i].Name, strings.Join(changed, ", "))
+	}
+	if entriesFixed == 0 {
+		fmt.Println("Nothing to repair.")
+		return
+	}
+	fmt.Printf("%d field(s) in %d entr(ies)\n", fieldsFixed, entriesFixed)
+	if dry {
+		fmt.Println("Dry run: nothing saved.")
+		return
+	}
+	if err := v.ReplaceAll(entries); err != nil {
+		fmt.Fprintln(os.Stderr, "Error saving:", err)
+		os.Exit(1)
+	}
+	fmt.Println("Repaired and saved. Run 'xpass push' to sync.")
+}
+
 func cmdRecovery(v *vault.Vault) {
 	if len(os.Args) < 4 {
 		fmt.Fprintln(os.Stderr, "Usage: xpass recovery <entry-name> <codes-file>")
@@ -590,6 +628,7 @@ Usage:
   xpass list         List all entries
   xpass import <f>   Import from 1Password (CSV/JSON/1pux)
   xpass recovery <n> <f>  Import recovery codes file into entry
+  xpass repair       Fix fields a 1Password import stored as map[...] (--dry-run)
   xpass scan <img>   Scan QR code image for TOTP (--entry <name>)
   xpass remote <url> Set git remote for sync
   xpass push         Push vault to remote

@@ -345,10 +345,9 @@ func parsePUXItem(item puxItem) (*vault.Entry, error) {
 					// Try monthYear format
 					if m, ok := f.Value.(map[string]interface{}); ok {
 						if my, ok := m["monthYear"]; ok {
-							parts := strings.Split(fmt.Sprintf("%v", my), "/")
-							if len(parts) == 2 {
-								entry.ExpiryMonth = parts[0]
-								entry.ExpiryYear = parts[1]
+							if month, year, ok := monthYear(my); ok {
+								entry.ExpiryMonth = month
+								entry.ExpiryYear = year
 							}
 						}
 					}
@@ -396,18 +395,7 @@ func parsePUXItem(item puxItem) (*vault.Entry, error) {
 }
 
 func puxFieldValue(f puxSectField) string {
-	switch v := f.Value.(type) {
-	case string:
-		return v
-	case map[string]interface{}:
-		if concealed, ok := v["concealed"]; ok {
-			return fmt.Sprintf("%v", concealed)
-		}
-		if totp, ok := v["totp"]; ok {
-			return fmt.Sprintf("%v", totp)
-		}
-	}
-	return fmt.Sprintf("%v", f.Value)
+	return fieldValue(f.Value)
 }
 
 func getField(headerMap map[string]int, record []string, names ...string) string {
@@ -773,17 +761,6 @@ func parseIdentityFields(entry *vault.Entry, item opItem) {
 }
 
 func sectionFieldValue(f opSectionField) string {
-	switch v := f.Value.(type) {
-	case string:
-		return v
-	case map[string]interface{}:
-		if concealed, ok := v["concealed"]; ok {
-			return fmt.Sprintf("%v", concealed)
-		}
-		if totp, ok := v["totp"]; ok {
-			return fmt.Sprintf("%v", totp)
-		}
-	}
-	return fmt.Sprintf("%v", f.Value)
+	return fieldValue(f.Value)
 }
 
