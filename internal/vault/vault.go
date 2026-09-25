@@ -290,8 +290,20 @@ func (v *Vault) TrackAccess(id string) {
 	}
 }
 
-// save encrypts and writes vault + config to disk
+// save encrypts and writes vault + config to disk, then auto-commits
 func (v *Vault) save() error {
+	if err := v.writeFiles(); err != nil {
+		return err
+	}
+
+	// Auto-commit if git is set up
+	v.sync.AutoCommit()
+
+	return nil
+}
+
+// writeFiles encrypts vault + config (each with a fresh salt) and writes them.
+func (v *Vault) writeFiles() error {
 	// Save entries
 	data, err := json.Marshal(v.entries)
 	if err != nil {
@@ -306,14 +318,7 @@ func (v *Vault) save() error {
 	if err != nil {
 		return err
 	}
-	if err := v.encryptToFile(ConfigFile, string(configData)); err != nil {
-		return err
-	}
-
-	// Auto-commit if git is set up
-	v.sync.AutoCommit()
-
-	return nil
+	return v.encryptToFile(ConfigFile, string(configData))
 }
 
 func (v *Vault) encryptToFile(filename, plaintext string) error {

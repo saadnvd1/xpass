@@ -323,12 +323,52 @@ func cmdPush(v *vault.Vault) {
 }
 
 func cmdPull(v *vault.Vault) {
+	requireUnlock(v)
 	fmt.Println("Pulling vault from remote...")
-	if err := v.Sync().Pull(); err != nil {
+	res, err := v.Pull()
+	if err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		os.Exit(1)
 	}
-	fmt.Println("Pulled. Unlock to see updated entries.")
+	printPullResult(res)
+}
+
+// printPullResult prints counts and entry names only — never a field value.
+func printPullResult(res *vault.PullResult) {
+	switch res.Outcome {
+	case vault.PullUpToDate:
+		fmt.Println("Already up to date.")
+		return
+	case vault.PullAhead:
+		fmt.Println("Nothing new on the remote; local has commits to push ('xpass push').")
+		return
+	case vault.PullFastForward:
+		fmt.Printf("Fast-forwarded: %d entries (was %d).\n", res.After, res.Before)
+		return
+	}
+
+	r := res.Report
+	fmt.Printf("Merged local and remote changes: %d entries (was %d).\n", res.After, res.Before)
+	list := func(label string, names []string) {
+		if len(names) == 0 {
+			return
+		}
+		fmt.Printf("  %s (%d):\n", label, len(names))
+		for _, n := range names {
+			fmt.Printf("    %s\n", n)
+		}
+	}
+	list("added from remote", r.FromRemoteAdded)
+	list("updated from remote", r.FromRemoteUpdated)
+	list("added locally", r.LocalAdded)
+	list("deleted", r.Deleted)
+	if len(r.Conflicts) > 0 {
+		fmt.Printf("  conflicts (%d):\n", len(r.Conflicts))
+		for _, c := range r.Conflicts {
+			fmt.Printf("    %s — %s\n", c.Name, c.Reason)
+		}
+	}
+	fmt.Println("Not pushed yet — run 'xpass push'.")
 }
 
 func cmdSync(v *vault.Vault) {

@@ -91,6 +91,15 @@ xpass sync         # check if ahead/behind
 
 Changes auto-commit locally after every add/edit/delete. Just remember to push.
 
+`xpass pull` asks for the master password and merges entry by entry when both
+sides changed (for example the Mac and a phone): an entry changed on one side
+takes that side; changed on both, the higher version wins (then the later
+`updatedAt`) and it is listed as a conflict; a delete wins over an untouched
+entry but never over an edit. It records a real git merge and prints counts
+and entry names only. A remote vault that does not open with your password is
+refused and nothing moves. `xpass push` refuses while the remote has changes
+you have not pulled.
+
 ### TUI keybindings
 
 | Key | Action |
