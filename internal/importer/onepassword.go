@@ -202,6 +202,7 @@ type puxSection struct {
 }
 
 type puxSectField struct {
+	ID    string      `json:"id"`
 	Title string      `json:"title"`
 	Value interface{} `json:"value"`
 	Type  string      `json:"type"`
@@ -330,28 +331,7 @@ func parsePUXItem(item puxItem) (*vault.Entry, error) {
 		entry.Type = vault.TypeCreditCard
 		for _, s := range item.Details.Sections {
 			for _, f := range s.Fields {
-				title := strings.ToLower(f.Title)
-				val := puxFieldValue(f)
-
-				if strings.Contains(title, "cardholder") {
-					entry.CardholderName = val
-				} else if strings.Contains(title, "number") || title == "card number" {
-					entry.CardNumber = val
-				} else if strings.Contains(title, "cvv") || strings.Contains(title, "verification") {
-					entry.CVV = val
-				} else if strings.Contains(title, "pin") {
-					entry.PIN = val
-				} else if strings.Contains(title, "expir") {
-					// Try monthYear format
-					if m, ok := f.Value.(map[string]interface{}); ok {
-						if my, ok := m["monthYear"]; ok {
-							if month, year, ok := monthYear(my); ok {
-								entry.ExpiryMonth = month
-								entry.ExpiryYear = year
-							}
-						}
-					}
-				}
+				applyCardField(entry, f)
 			}
 		}
 
@@ -392,6 +372,33 @@ func parsePUXItem(item puxItem) (*vault.Entry, error) {
 	}
 
 	return entry, nil
+}
+
+// applyCardField maps one field of a 1Password card by its field ID (ccnum,
+// cvv, cardholder, expiry, pin), falling back to an exact title. Matching
+// titles by "contains number" let "verification number" and a blank "issue
+// number" overwrite the card number; and a blank field never overwrites one
+// that was filled.
+func applyCardField(entry *vault.Entry, f puxSectField) {
+	id, title := strings.ToLower(f.ID), strings.ToLower(strings.TrimSpace(f.Title))
+	val := puxFieldValue(f)
+	if val == "" {
+		return
+	}
+	switch {
+	case id == "cardholder" || title == "cardholder name" || title == "cardholder":
+		entry.CardholderName = val
+	case id == "ccnum" || title == "number" || title == "card number":
+		entry.CardNumber = val
+	case id == "cvv" || title == "verification number" || title == "cvv":
+		entry.CVV = val
+	case id == "pin" || title == "pin":
+		entry.PIN = val
+	case id == "expiry" || title == "expiry date" || title == "expiration date":
+		if month, year, ok := monthYear(f.Value); ok {
+			entry.ExpiryMonth, entry.ExpiryYear = month, year
+		}
+	}
 }
 
 func puxFieldValue(f puxSectField) string {

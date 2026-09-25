@@ -51,6 +51,8 @@ func main() {
 		cmdPull(v)
 	case "sync":
 		cmdSync(v)
+	case "fill":
+		cmdFill(v)
 	case "repair":
 		cmdRepair(v)
 	case "recovery":
@@ -477,6 +479,51 @@ func cmdScan(v *vault.Vault) {
 // cmdRepair unwraps values the old 1Password importer stored as Go's print of
 // a typed field ("map[string:]", "map[creditCardNumber:…]"). It prints entry
 // and field names only, and saves once.
+// cmdFill re-reads a 1Password export and fills only the fields that are empty
+// in the vault (an old importer lost card numbers and expiries). Entries are
+// matched, never added; nothing filled is overwritten. Names only are printed.
+func cmdFill(v *vault.Vault) {
+	if len(os.Args) < 3 {
+		fmt.Fprintln(os.Stderr, "Usage: xpass fill <export.1pux|.json|.csv> [--dry-run]")
+		os.Exit(1)
+	}
+	dry := len(os.Args) > 3 && os.Args[3] == "--dry-run"
+	result, err := importer.Import(os.Args[2])
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "Error reading export:", err)
+		os.Exit(1)
+	}
+	requireUnlock(v)
+	entries := append([]vault.Entry(nil), v.Entries()...)
+	now := time.Now().UTC().Format(time.RFC3339)
+	entriesFilled, fieldsFilled := 0, 0
+	for i, j := range importer.Match(entries, result.Entries) {
+		filled := importer.FillEmpty(&entries[i], result.Entries[j])
+		if len(filled) == 0 {
+			continue
+		}
+		entriesFilled++
+		fieldsFilled += len(filled)
+		entries[i].UpdatedAt = now
+		entries[i].Version++
+		fmt.Printf("  %s: %s\n", entries[i].Name, strings.Join(filled, ", "))
+	}
+	if entriesFilled == 0 {
+		fmt.Println("Nothing to fill.")
+		return
+	}
+	fmt.Printf("%d field(s) in %d entr(ies)\n", fieldsFilled, entriesFilled)
+	if dry {
+		fmt.Println("Dry run: nothing saved.")
+		return
+	}
+	if err := v.ReplaceAll(entries); err != nil {
+		fmt.Fprintln(os.Stderr, "Error saving:", err)
+		os.Exit(1)
+	}
+	fmt.Println("Filled and saved. Run 'xpass push' to sync.")
+}
+
 func cmdRepair(v *vault.Vault) {
 	dry := len(os.Args) > 2 && os.Args[2] == "--dry-run"
 	requireUnlock(v)
@@ -629,6 +676,7 @@ Usage:
   xpass import <f>   Import from 1Password (CSV/JSON/1pux)
   xpass recovery <n> <f>  Import recovery codes file into entry
   xpass repair       Fix fields a 1Password import stored as map[...] (--dry-run)
+  xpass fill <f>     Fill EMPTY fields from a 1Password export again (--dry-run)
   xpass scan <img>   Scan QR code image for TOTP (--entry <name>)
   xpass remote <url> Set git remote for sync
   xpass push         Push vault to remote

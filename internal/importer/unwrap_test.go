@@ -68,3 +68,38 @@ func TestRepairEntryFixesEveryStringField(t *testing.T) {
 		t.Errorf("changed = %v, want 3 fields", got)
 	}
 }
+
+func TestTheCardNumberIsNotOverwrittenByOtherNumbers(t *testing.T) {
+	e := &vault.Entry{}
+	for _, f := range []puxSectField{
+		{ID: "cardholder", Title: "cardholder name", Value: map[string]interface{}{"string": "S N"}},
+		{ID: "ccnum", Title: "number", Value: map[string]interface{}{"creditCardNumber": "4111"}},
+		{ID: "cvv", Title: "verification number", Value: map[string]interface{}{"concealed": "123"}},
+		{ID: "expiry", Title: "expiry date", Value: map[string]interface{}{"monthYear": float64(202912)}},
+		{ID: "issuenumber", Title: "issue number", Value: map[string]interface{}{"string": ""}},
+		{ID: "pin", Title: "PIN", Value: map[string]interface{}{"concealed": ""}},
+	} {
+		applyCardField(e, f)
+	}
+	if e.CardNumber != "4111" || e.CVV != "123" || e.CardholderName != "S N" || e.ExpiryMonth != "12" || e.ExpiryYear != "2029" || e.PIN != "" {
+		t.Fatalf("card: %+v", e)
+	}
+}
+
+func TestFillEmptyNeverOverwrites(t *testing.T) {
+	have := vault.Entry{Name: "Sofi", Type: vault.TypeCreditCard, CVV: "999"}
+	from := vault.Entry{Name: "Sofi", Type: vault.TypeCreditCard, CardNumber: "4111", CVV: "123", ExpiryMonth: "12"}
+	got := FillEmpty(&have, from)
+	if have.CardNumber != "4111" || have.CVV != "999" || have.ExpiryMonth != "12" || len(got) != 2 {
+		t.Fatalf("filled %v -> %+v", got, have)
+	}
+}
+
+func TestMatchPrefersCreationTime(t *testing.T) {
+	v := []vault.Entry{{Name: "Visa", Type: vault.TypeCreditCard, CreatedAt: "a"}, {Name: "Visa", Type: vault.TypeCreditCard, CreatedAt: "b"}, {Name: "Solo", Type: vault.TypeLogin}}
+	im := []vault.Entry{{Name: "Visa", Type: vault.TypeCreditCard, CreatedAt: "b"}, {Name: "Solo", Type: vault.TypeLogin, CreatedAt: "z"}, {Name: "New", Type: vault.TypeLogin}}
+	m := Match(v, im)
+	if m[1] != 0 || m[2] != 1 || len(m) != 2 {
+		t.Fatalf("match = %v", m)
+	}
+}
