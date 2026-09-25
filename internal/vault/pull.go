@@ -30,6 +30,32 @@ type PullResult struct {
 // with this vault's password; nothing is accepted.
 var ErrRemoteUndecryptable = fmt.Errorf("the remote vault does not open with your password — not accepted; git history has the previous version")
 
+// ErrRemoteReplayed: the remote vault.json is one this vault already had.
+var ErrRemoteReplayed = fmt.Errorf("the remote vault is an OLDER copy of this vault, replayed byte for byte — not accepted (it would bring back old passwords); check who pushed it: git -C ~/.xpass log origin/main")
+
+func (v *Vault) refuseReplay(head string) error {
+	s := v.sync
+	remote, err := s.BlobAt(s.RemoteRef(), VaultFile)
+	if err != nil {
+		return err
+	}
+	current, err := s.BlobAt(head, VaultFile)
+	if err != nil {
+		return err
+	}
+	if remote == current {
+		return nil
+	}
+	past, err := s.PastBlobs(head, VaultFile)
+	if err != nil {
+		return err
+	}
+	if past[remote] {
+		return ErrRemoteReplayed
+	}
+	return nil
+}
+
 // Pull fetches the remote and brings its entries in, merging entry by entry
 // when both sides changed. The vault must be unlocked (the password decrypts
 // the base, local and remote copies). A remote vault.json that does not
@@ -69,6 +95,14 @@ func (v *Vault) Pull() (*PullResult, error) {
 
 	orig, err := s.Head()
 	if err != nil {
+		return nil, err
+	}
+
+	// A replay: an older vault, byte for byte, brought back. Nobody without
+	// the password can make a NEW encryption of old entries, so an old copy is
+	// always an exact one, and it would restore rotated passwords and drop
+	// newer entries while decrypting perfectly well.
+	if err := v.refuseReplay(orig); err != nil {
 		return nil, err
 	}
 

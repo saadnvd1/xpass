@@ -340,3 +340,47 @@ func TestPullRefusesRemoteThatDoesNotDecrypt(t *testing.T) {
 	x.phoneWrite(nil, enc.Salt, testPW, "null")
 	refused("null")
 }
+
+// A replayed old vault decrypts perfectly — it is a genuine old copy — and
+// would bring back rotated passwords. Pull must refuse it.
+func TestPullRefusesAReplayedOldVault(t *testing.T) {
+	x := setup(t)
+	pw := testPW + "\n"
+	remote := filepath.Join(x.root, "remote.git")
+	x.git(x.root, "init", "--bare", remote)
+
+	x.mustXpass(pw+pw, "init")
+	x.mustXpass("", "remote", remote)
+	x.mustXpass(pw, "add", "Alpha", "--password", "old-password")
+	x.mustXpass("", "push")
+	old, err := os.ReadFile(filepath.Join(x.vault, "vault.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// The password is rotated on the phone and the Mac takes it.
+	x.git(x.root, "clone", remote, x.phone)
+	entries, enc := x.phoneEntries()
+	entries[0].Password = "new-password"
+	entries[0].Version++
+	x.phoneWrite(entries, enc.Salt, testPW, "rotate")
+	x.mustXpass(pw, "pull")
+
+	// Someone with push access brings the old ciphertext back, byte for byte.
+	x.git(x.phone, "pull", "--ff-only")
+	os.WriteFile(filepath.Join(x.phone, "vault.json"), old, 0600)
+	x.git(x.phone, "commit", "-am", "replay")
+	x.git(x.phone, "push", "origin", "main")
+
+	before := x.git(x.vault, "rev-parse", "HEAD")
+	out, err := x.xpass(pw, "pull")
+	if err == nil || !strings.Contains(out, "OLDER copy") {
+		t.Fatalf("pull should refuse the replay; err=%v\n%s", err, out)
+	}
+	if after := x.git(x.vault, "rev-parse", "HEAD"); after != before {
+		t.Fatalf("HEAD moved from %s to %s", before, after)
+	}
+	if strings.Contains(out, "old-password") || strings.Contains(out, "new-password") {
+		t.Fatal("a secret reached the output")
+	}
+}

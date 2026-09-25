@@ -187,6 +187,33 @@ func (s *Sync) MergeBase() (string, error) {
 }
 
 // ShowFile returns a file's contents at a revision.
+// BlobAt is the git object id of path at rev.
+func (s *Sync) BlobAt(rev, path string) (string, error) {
+	out, err := s.gitOutput("rev-parse", rev+":"+path)
+	return strings.TrimSpace(out), err
+}
+
+// PastBlobs is every object id path has had in rev's history, current one
+// included — what a replayed old copy would match byte for byte.
+func (s *Sync) PastBlobs(rev, path string) (map[string]bool, error) {
+	out, err := s.gitOutput("log", "--no-renames", "--no-abbrev", "--format=", "--raw", rev, "--", path)
+	if err != nil {
+		return nil, err
+	}
+	seen := map[string]bool{}
+	for _, line := range strings.Split(out, "\n") {
+		f := strings.Fields(line)
+		if len(f) >= 5 && strings.HasPrefix(f[0], ":") {
+			for _, id := range f[2:4] {
+				if strings.Trim(id, "0") != "" {
+					seen[id] = true
+				}
+			}
+		}
+	}
+	return seen, nil
+}
+
 func (s *Sync) ShowFile(rev, path string) ([]byte, error) {
 	cmd := exec.Command("git", "show", rev+":"+path)
 	cmd.Dir = s.dir
