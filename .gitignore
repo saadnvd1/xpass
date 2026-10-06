@@ -2,3 +2,4 @@ xpass
 dist/
 *.exe
 .DS_Store
+docs/sessions/
